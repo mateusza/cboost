@@ -113,6 +113,21 @@ class Compare(expr):
     """
     cboost AST compare
     """
+    # TODO: 
+    # Python allow for multiple comparisons in single expression:
+    # a < b == b2 > c
+    # effectively this should be considered equal to:
+    # (a < b) && (b == b2) && (b2 > c)
+    # but Python makes each expression evaluated only once
+    # so following expression:
+    # a() < b() == b2() > c()
+    # cannot be translated to:
+    # (a() < b() && (b() == b2()) && (b2() > c())
+    # cause this will make some functions called twice
+    # moreover, once any of condition fails, remaining part should not be valuated at all
+    #
+    # verdict: we don't support more than one comparator
+
     left: expr
     ops: list
     comparators: list
@@ -124,6 +139,8 @@ class Compare(expr):
 
     @classmethod
     def _from_py(cls, cmpr: ast.Compare):
+        if len(cmpr.comparators) > 1:
+            raise Exception("Expressions with multiple comparisons are not supported yet")
         return cls(**{
             'left': convert(cmpr.left),
             'ops': convert_list(cmpr.ops),
@@ -186,6 +203,9 @@ class If(stmt):
 class Lt(cmpop):
     ...
 
+class LtE(cmpop):
+    ...
+
 class Module(mod):
     """
     cboost AST Module
@@ -221,6 +241,25 @@ class Name(expr):
         id = name.id
         n = cls(id=id)
         return n
+
+class While(stmt):
+    """
+    cboost AST While
+    """
+    test: expr
+    body: list
+    def __init__(self, test: expr=None, body: list=[]):
+        self.test = test
+        self.body = body
+
+    @classmethod
+    def _from_py(cls, wh: ast.While):
+        if len(wh.orelse):
+            raise Exception("While loops with strange 'else:' block are not supported yet")
+        return cls(**{
+            'test': convert(wh.test),
+            'body': convert_list(wh.body)
+        })
 
 def __convert_class(py_ast_class: type) -> type:
     """
@@ -280,8 +319,10 @@ __class_conversions: dict = {
     ast.Gt:         Gt,
     ast.If:         If,
     ast.Lt:         Lt,
+    ast.LtE:        LtE,
     ast.Module:     Module,
     ast.Name:       Name,
+    ast.While:      While,
 }
 
 def translate_while_loop(wloop, indent: int=0) -> str:
