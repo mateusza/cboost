@@ -4,19 +4,19 @@ import inspect
 import ast
 import dis
 import os
-import tempfile
+import hashlib
 import ctypes
 
 ALL_FUNCTIONS = {}
 IS_COMPILED = False
-LIBNAME = None
 SO = None
 
-def translate_while_loop(wloop) -> str:
-    body = translate_body(wloop.body)
+def translate_while_loop(wloop, indent: int=0) -> str:
+    ind = " " * 4
+    body = translate_body(wloop.body, indent=indent+4)
     cond = translate_instruction(wloop.test, semicolon=False)
 
-    return f'while({cond})' + '{\n' + body + '\n}\n'
+    return ind + f'while({cond})' + '{\n' + body + '\n' + ind + '}\n'
 
 def translate_range(r) -> (object, object, object):
     match r.iter.args:
@@ -44,8 +44,9 @@ def translate_range(r) -> (object, object, object):
     )
     return init, cond, inc
 
-def translate_for_loop(floop) -> str:
-    body = translate_body(floop.body)
+def translate_for_loop(floop, indent: int=0) -> str:
+    ind = ' ' * indent
+    body = translate_body(floop.body, indent=indent+4)
     try:
         assert type(floop.iter) == ast.Call
         assert floop.iter.func.id == 'range'
@@ -57,7 +58,7 @@ def translate_for_loop(floop) -> str:
     cond = translate_instruction(cond)
     inc = translate_instruction(inc, semicolon=False)
 
-    return f'for ({init} {cond} {inc})' + '{\n' + body + '\n}'
+    return ind + f'for ({init} {cond} {inc})' + '{\n' + body + '\n' + ind + '}\n'
 
 def translate_augassign(asgn) -> str:
     vname = asgn.target.id
@@ -122,7 +123,7 @@ def translate_op(op) -> str:
             return "+"
         case ast.Mult():
             return "*"
-        case ast.Sub():
+        case ast.Sub()|ast.USub():
             return "-"
         case ast.Mod():
             return '%'
@@ -162,6 +163,11 @@ def translate_binop(op) -> str:
     sign = translate_op(op.op)
     return f"({left} {sign} {right})"
 
+def translate_unaryop(op) -> str:
+    operand = translate_value(op.operand)
+    sign = translate_op(op.op)
+    return f"({sign} {operand})"
+
 def translate_boolop(op) -> str:
     values2 = [translate_value(v) for v in op.values]
     sign = translate_op(op.op)
@@ -176,6 +182,8 @@ def translate_value(value) -> str:
             return translate_var(value)
         case ast.BinOp():
             return translate_binop(value)
+        case ast.UnaryOp():
+            return translate_unaryop(value)
         case ast.BoolOp():
             return translate_boolop(value)
         case ast.Constant():
@@ -189,10 +197,11 @@ def translate_value(value) -> str:
 def translate_test(the_test) -> str:
     return translate_value(the_test)
 
-def translate_if(instruction) -> str:
+def translate_if(instruction, indent: int=0) -> str:
+    ind = " " * indent
     condition = translate_test(instruction.test)
-    body = translate_body(instruction.body)
-    return "if(" + condition + "){\n" + body + "\n}"
+    body = translate_body(instruction.body, indent=indent)
+    return ind + "if(" + condition + "){\n" + body + "\n" + ind + "}"
 
 def translate_return(instruction) -> str:
     value = translate_value(instruction.value)
@@ -208,31 +217,32 @@ def translate_type(annotation) -> str:
             return 'int'
     return f'UNKNOWN_TYPE /*{ast.dump(annotation)}*/'
 
-def translate_body(body) -> str:
+def translate_body(body, indent: int=0) -> str:
     instructions = []
     for instr in body:
-        i = translate_instruction(instr)
-        instructions.append(i)
+        i = translate_instruction(instr, indent=indent)
+        instructions.append(indent*" " + i)
     return "\n".join(instructions)
 
-def translate_instruction(ins, semicolon=True) -> str:
+def translate_instruction(ins, semicolon=True, indent: int=0) -> str:
     sc = ";" if semicolon else ""
+    ind = " " * indent
     match ins:
         case ast.If():
-            return translate_if(ins)
+            return ind + translate_if(ins, indent=indent + 4)
         case ast.While():
-            return translate_while_loop(ins)
+            return ind + translate_while_loop(ins, indent=indent + 4)
         case ast.Return():
-            return translate_return(ins) + sc
+            return ind + translate_return(ins) + sc
         case ast.AnnAssign():
-            return translate_annassign(ins) + sc
+            return ind + translate_annassign(ins) + sc
         case ast.Assign():
-            return translate_assign(ins) + sc
+            return ind + translate_assign(ins) + sc
         case ast.AugAssign():
-            return translate_augassign(ins) + sc
+            return ind + translate_augassign(ins) + sc
         case ast.For():
-            return translate_for_loop(ins)
-    return translate_value(ins) + sc
+            return ind + translate_for_loop(ins, indent=indent + 4)
+    return ind + translate_value(ins) + sc
 
 def translate_arg(arg: ast.arg) -> str:
     name = arg.arg
@@ -288,28 +298,30 @@ def make_c(func: object) -> object:
 def execute_c_func(name: str, args, kwargs):
     global LIBNAME
     if not IS_COMPILED:
-        c_code = make_c_code()
-        LIBNAME = compile_c(c_code)
+        compile_c()
     f = ALL_FUNCTIONS[name]['ptr']
     return f(*args, **kwargs)
     
 def make_c_code() -> str:
-    hdrs = [f['h'] for f in ALL_FUNCTIONS.values()]
+    hdrs = (['extern "C" {'] +
+           [f['h'] for f in ALL_FUNCTIONS.values()] +
+           ['}'])
     code = [f['c'] for f in ALL_FUNCTIONS.values()]
     return "\n".join(hdrs + code)
 
-def compile_c(c_code):
+def compile_c():
+    c_code = make_c_code()
     global IS_COMPILED
-    tc = tempfile.mktemp('.c')
-    tso = tempfile.mktemp('.so')
+    fid = hashlib.sha256(c_code.encode()).hexdigest()[0:16]
+    prefix = '__pycache__/cboost-'
+    tc = f'{prefix}{fid}.cpp'
+    tso = f'{prefix}{fid}.so'
+    tlog = f'{prefix}{fid}.log'
     with open(tc, 'w') as f:
         f.write(c_code)
-    print(f"-----BEGIN C-----\n{c_code}\n-----END C-----")
-    cmd = f'gcc -O3 -shared -o {tso} {tc}'
-    print(f"sys: {cmd}")
+    cmd = f'g++ -Wall -O3 -shared -o {tso} {tc} > {tlog}'
     ret = os.system(cmd)
     assert ret == 0
-    print(tso)
     SO = ctypes.cdll.LoadLibrary(tso)
     IS_COMPILED = True
     for n in ALL_FUNCTIONS.keys():
