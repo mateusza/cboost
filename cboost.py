@@ -114,6 +114,8 @@ def translate_op(op) -> str:
             return '!='
         case ast.Lt():
             return "<"
+        case ast.LtE():
+            return "<="
         case ast.Gt():
             return '>'
         case ast.Add():
@@ -256,11 +258,10 @@ def translate_function(fcode: ast.FunctionDef) -> (str, str, str):
     function_name: str = fcode.name
     return_type: str = translate_type(fcode.returns)
     arguments: str = translate_args(fcode.args)
-    argument_typs = get_arg_types(fcode.args)
     instructions: str = translate_body(fcode.body)
     hdr: str = f'{return_type} {function_name} ({arguments})'
     body: str = hdr + '{\n' + instructions + '\n}\n'
-    return function_name, hdr+';', body, [return_type, argument_types(fcode
+    return function_name, hdr+';', body
 
 def translate_module(mod: ast.Module) -> (str, str, str):
     element = mod.body[0]
@@ -304,7 +305,7 @@ def compile_c(c_code):
     with open(tc, 'w') as f:
         f.write(c_code)
     print(f"-----BEGIN C-----\n{c_code}\n-----END C-----")
-    cmd = f'tcc -shared -o {tso} {tc}'
+    cmd = f'gcc -O3 -shared -o {tso} {tc}'
     print(f"sys: {cmd}")
     ret = os.system(cmd)
     assert ret == 0
