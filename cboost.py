@@ -161,6 +161,9 @@ class Constant(expr):
 class Eq(cmpop):
     ...
 
+class Gt(cmpop):
+    ...
+
 class If(stmt):
     "cboost If"
     test: expr = None
@@ -179,6 +182,9 @@ class If(stmt):
         orelse = convert_list(the_if.orelse)
         i = cls(test=test, body=body, orelse=orelse)
         return i
+
+class Lt(cmpop):
+    ...
 
 class Module(mod):
     """
@@ -228,8 +234,10 @@ def __convert_class(py_ast_class: type) -> type:
 
 def dump(obj: AST, indent: int = 0, __current_indent: int = 0) -> str:
     ii = ' ' * (indent + __current_indent)
+    def is_simple(obj):
+        return all(type(v) != list for v in vars(obj).values()) and len(vars(obj)) <= 3
     if isinstance(obj, AST):
-        if isinstance(obj, (Name, Constant)):
+        if is_simple(obj):
             indent = 0
             ii = ''
         return (
@@ -269,7 +277,9 @@ __class_conversions: dict = {
     ast.Compare:    Compare,
     ast.Constant:   Constant,
     ast.Eq:         Eq,
+    ast.Gt:         Gt,
     ast.If:         If,
+    ast.Lt:         Lt,
     ast.Module:     Module,
     ast.Name:       Name,
 }
