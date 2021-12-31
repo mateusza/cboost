@@ -11,6 +11,7 @@ ALL_FUNCTIONS = {}
 IS_COMPILED = False
 SO = None
 
+
 class AST:
     """
     cboost Abstract Syntax Tree element
@@ -26,13 +27,8 @@ class AST:
         """
         Create new element by converting Python AST Element
         """
-        raise Exception("Unimplemented")
 
-    def __repr__(self):
-        """
-        Just __repr__
-        """
-        return f'{type(self).__name__}(...)'
+        raise Exception(f'Not implemented {cls=} {ast_element=} {type(ast_element)=} {ast.dump(ast_element)=}')
 
 class expr(AST):
     """
@@ -54,15 +50,43 @@ class stmt(AST):
     cboost AST statement
     """
 
+class AnnAssign(stmt):
+    """
+    cboost AnnAssign
+    """
+    target: object = None
+    annotation: object = None
+    value: object = None
+    simple: int = 0
+
+    def __init__(self, target: AST = None, annotation: AST = None, value: expr=None, simple:int =0):
+        self.target = target
+        self.value = value
+        self.annotation = annotation
+        self.simple = simple
+
+    @classmethod
+    def _from_py(cls, annassign: ast.AnnAssign):
+        """
+        convert
+        """
+        target = convert(annassign.target)
+        value = convert(annassign.value)
+        annotation = convert(annassign.annotation)
+        simple = annassign.simple
+        a = cls(target=target, annotation=annotation, value=value, simple=simple)
+        return a
+
+
 class Assign(stmt):
     """
     cboost Assign
     """
-    __targets: list = []
-    __value = None
+    targets: list = []
+    value = None
     def __init__(self, targets=[], value=None):
-        self.__targets = targets
-        self.__value = value
+        self.targets = targets
+        self.value = value
 
     @classmethod
     def _from_py(cls, assign: ast.Assign):
@@ -74,13 +98,41 @@ class Assign(stmt):
         a = cls(targets=targets, value=value)
         return a
 
+class Constant(expr):
+    """
+    cboost AST constant
+    """
+    value: object
+    def __init__(self, value: object=None):
+        self.value = value
+
+    @classmethod
+    def _from_py(cls, const: ast.Constant):
+        """
+        convert AST Constant
+        """
+        # TODO:
+        # some python constants needs conversion to C/C++ literals, types etc
+        # - booleans !!!
+        # - None -> nullptr !!
+        # - big ints (https://faheel.github.io/BigInt/)
+        # - ...
+
+        value = const.value
+        if value in [True, False]:
+            value = int(value)
+        if value == None:
+            value = 0
+        c = cls(value=value)
+        return c
+
 class Module(mod):
     """
     cboost AST Module
     """
-    __body: list
+    body: list
     def __init__(self, body: list=[]):
-        self.__body = body
+        self.body = body
 
     @classmethod
     def _from_py(cls, module: ast.Module):
@@ -95,19 +147,19 @@ class Name(expr):
     """
     cboost AST Name
     """
-    __id: str
-    __ctx: object
-    def __init__(self, id_: str='', ctx: object = None):
-        self.__id = id_
-        self.__ctx = ctx
+    id: str
+    ctx: object
+    def __init__(self, id: str='', ctx: object = None):
+        self.id = id
+        self.ctx = ctx
 
     @classmethod
     def _from_py(cls, name: ast.Name):
         """
         convert Python AST Name
         """
-        id_ = name.id
-        n = cls(id_=id_)
+        id = name.id
+        n = cls(id=id)
         return n
 
 def __convert_class(py_ast_class: type) -> type:
@@ -119,6 +171,29 @@ def __convert_class(py_ast_class: type) -> type:
         return __class_conversions[py_ast_class]
     except KeyError as e:
         raise Exception(f'Class not supported: {py_ast_class}')
+
+def dump(obj: AST, indent: int = 0, __current_indent: int = 0) -> str:
+    ii = ' ' * (indent + __current_indent)
+    if isinstance(obj, AST):
+        if isinstance(obj, (Name, Constant)):
+            indent = 0
+            ii = ''
+        return (
+            f'{type(obj).__name__}'
+            + '('
+            + ('\n' if indent else '')
+            + (',\n' if indent else ', ').join([f'{ii}{p}=' + dump(v, indent=indent, __current_indent=__current_indent + indent) for (p, v) in vars(obj).items()])
+            + ')'
+        )
+    elif isinstance(obj, list):
+        return (
+            '['
+            + ('\n' if indent else '')
+            + (',\n' if indent else ', ').join(ii + dump(e, indent=indent, __current_indent=__current_indent + indent) for e in obj)
+            + ']'
+        )
+    else:
+        return repr(obj)
 
 def convert(py_ast_object: ast.AST) -> AST:
     """
@@ -135,7 +210,9 @@ def convert_list(element_list: list) -> list:
     return [convert(e) for e in element_list]
 
 __class_conversions: dict = {
-    ast.Assign:     Assign,        
+    ast.AnnAssign:  AnnAssign,
+    ast.Assign:     Assign,
+    ast.Constant:   Constant,
     ast.Module:     Module,
     ast.Name:       Name,
 }
