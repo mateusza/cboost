@@ -11,6 +11,135 @@ ALL_FUNCTIONS = {}
 IS_COMPILED = False
 SO = None
 
+class AST:
+    """
+    cboost Abstract Syntax Tree element
+    """
+    def __render__(self):
+        """
+        Render element into C/C++ source code
+        """
+        return f'/* AST {self} */'
+
+    @classmethod
+    def _from_py(cls, ast_element: ast.AST):
+        """
+        Create new element by converting Python AST Element
+        """
+        raise Exception("Unimplemented")
+
+    def __repr__(self):
+        """
+        Just __repr__
+        """
+        return f'{type(self).__name__}(...)'
+
+class expr(AST):
+    """
+    cboost AST expression
+    """
+
+class mod(AST):
+    """
+    cboost AST mod
+    """
+
+class operator(AST):
+    """
+    cboost AST Operator object
+    """
+
+class stmt(AST):
+    """
+    cboost AST statement
+    """
+
+class Assign(stmt):
+    """
+    cboost Assign
+    """
+    __targets: list = []
+    __value = None
+    def __init__(self, targets=[], value=None):
+        self.__targets = targets
+        self.__value = value
+
+    @classmethod
+    def _from_py(cls, assign: ast.Assign):
+        """
+        Convert Python AST Assign
+        """
+        targets = convert_list(assign.targets)
+        value = convert(assign.value)
+        a = cls(targets=targets, value=value)
+        return a
+
+class Module(mod):
+    """
+    cboost AST Module
+    """
+    __body: list
+    def __init__(self, body: list=[]):
+        self.__body = body
+
+    @classmethod
+    def _from_py(cls, module: ast.Module):
+        """
+        Convert Python AST Module
+        """
+        body = convert_list(module.body)
+        m = cls(body=body)
+        return m
+
+class Name(expr):
+    """
+    cboost AST Name
+    """
+    __id: str
+    __ctx: object
+    def __init__(self, id_: str='', ctx: object = None):
+        self.__id = id_
+        self.__ctx = ctx
+
+    @classmethod
+    def _from_py(cls, name: ast.Name):
+        """
+        convert Python AST Name
+        """
+        id_ = name.id
+        n = cls(id_=id_)
+        return n
+
+def __convert_class(py_ast_class: type) -> type:
+    """
+    Convert Python AST class to cboost AST class
+    """
+    global __class_conversions
+    try:
+        return __class_conversions[py_ast_class]
+    except KeyError as e:
+        raise Exception(f'Class not supported: {py_ast_class}')
+
+def convert(py_ast_object: ast.AST) -> AST:
+    """
+    Convert Python AST object to cboost AST
+    """
+    kls = __convert_class(type(py_ast_object))
+    ast_obj = kls._from_py(py_ast_object)
+    return ast_obj
+
+def convert_list(element_list: list) -> list:
+    """
+    Convert list of Python AST objects to cboost AST objects
+    """
+    return [convert(e) for e in element_list]
+
+__class_conversions: dict = {
+    ast.Assign:     Assign,        
+    ast.Module:     Module,
+    ast.Name:       Name,
+}
+
 def translate_while_loop(wloop, indent: int=0) -> str:
     ind = " " * 4
     body = translate_body(wloop.body, indent=indent+4)
@@ -326,4 +455,8 @@ def compile_c():
     IS_COMPILED = True
     for n in ALL_FUNCTIONS.keys():
         ALL_FUNCTIONS[n]['ptr'] = SO[n]
+
+
+
+
 
