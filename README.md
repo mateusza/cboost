@@ -4,6 +4,8 @@ Boost your **python** code by automatically converting it to **C/C++** on the fl
 
 Everything happens automagically just by adding single `import` and a decorator.
 
+Read more about [current status, features, and bugs](TODO.md)...
+
 ## Example python code to recursively calculate *n-th* term of Fibonacci sequence.
 
 ```python
