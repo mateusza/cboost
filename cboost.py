@@ -27,8 +27,19 @@ class AST:
         """
         Create new element by converting Python AST Element
         """
+        print(f'{ast_element=}')
+        print(f'{type(ast_element)=}')
+        print(f'{ast.dump(ast_element, indent=8)}')  
+        raise Exception(f'Not implemented {cls=}')
 
-        raise Exception(f'Not implemented {cls=} {ast_element=} {type(ast_element)=} {ast.dump(ast_element)=}')
+class cmpop(AST):
+    """
+    cboost AST comparing operation
+    """
+
+    @classmethod
+    def _from_py(cls, the_op: ast.cmpop):
+        return cls()
 
 class expr(AST):
     """
@@ -98,6 +109,27 @@ class Assign(stmt):
         a = cls(targets=targets, value=value)
         return a
 
+class Compare(expr):
+    """
+    cboost AST compare
+    """
+    left: expr
+    ops: list
+    comparators: list
+
+    def __init__(self, left: expr = None, ops: list = [], comparators: list = []):
+        self.left = left
+        self.ops = ops
+        self.comparators = comparators
+
+    @classmethod
+    def _from_py(cls, cmpr: ast.Compare):
+        return cls(**{
+            'left': convert(cmpr.left),
+            'ops': convert_list(cmpr.ops),
+            'comparators': convert_list(cmpr.comparators)
+        })
+
 class Constant(expr):
     """
     cboost AST constant
@@ -125,6 +157,28 @@ class Constant(expr):
             value = 0
         c = cls(value=value)
         return c
+
+class Eq(cmpop):
+    ...
+
+class If(stmt):
+    "cboost If"
+    test: expr = None
+    body: list = None
+    orelse: list = None
+
+    def __init__(self, test: expr = None, body: list = [], orelse: list = []):
+        self.test = test
+        self.body = body
+        self.orelse = orelse
+
+    @classmethod
+    def _from_py(cls, the_if: ast.If):
+        test = convert(the_if.test)
+        body = convert_list(the_if.body)
+        orelse = convert_list(the_if.orelse)
+        i = cls(test=test, body=body, orelse=orelse)
+        return i
 
 class Module(mod):
     """
@@ -212,7 +266,10 @@ def convert_list(element_list: list) -> list:
 __class_conversions: dict = {
     ast.AnnAssign:  AnnAssign,
     ast.Assign:     Assign,
+    ast.Compare:    Compare,
     ast.Constant:   Constant,
+    ast.Eq:         Eq,
+    ast.If:         If,
     ast.Module:     Module,
     ast.Name:       Name,
 }
