@@ -12,16 +12,26 @@ ALL_FUNCTIONS = {}
 IS_COMPILED = False
 SO = None
 
+class CppSource:
+    includes: set
+    declarations: list
+    definitions: list
+
+    def __str__(self):
+        includes = [f'#include <{inc}>' for inc in self.includes]
+        declarations = [f'{dec};' for dec in self.decarations]
+        definitions = [f'{def_}\n' for def_ in self.definitions]
+        return '\n'.join([*includes, *declarations, *definitions])
 
 class AST:
     """
     cboost Abstract Syntax Tree element
     """
-    def __render__(self):
+    def _render(self, indent: int = 4, curr_indent: str='', next_indent: str='', **kwargs):
         """
         Render element into C/C++ source code
         """
-        return f'/* AST {self} */'
+        return f'{curr_indent}/* AST {self} */'
 
     @classmethod
     def _from_py(cls, ast_element: ast.AST):
@@ -51,6 +61,13 @@ class arg(AST):
             'annotation': convert(a.annotation)
         })
 
+    def _render(self, **kwargs):
+        try:
+            return_type = convert_type(self.annotation.id)
+        except AttributeError:
+            raise Exception('Arguments without type annotations are not supported')
+        return return_type + ' ' + self.arg
+
 class arguments(AST):
     args: list
     posonlyargs: list
@@ -75,6 +92,14 @@ class arguments(AST):
             'defaults': convert_list(a.defaults)
         })
 
+    def _render(self, **kwargs):
+        # FIXME: defaults
+
+        return ', '.join([
+            render(a) for na, a in enumerate(self.args)
+        ])
+
+
 class cmpop(AST):
     """
     cboost AST comparing operation
@@ -83,6 +108,9 @@ class cmpop(AST):
     @classmethod
     def _from_py(cls, the_op: ast.cmpop):
         return cls()
+
+    def _render(self, **kwargs):
+        return self.r
 
 class expr(AST):
     """
@@ -103,6 +131,9 @@ class operator(AST):
     def _from_py(cls, the_op: ast.operator):
         return cls()
 
+    def _render(self, **kwargs):
+        return self.r
+
 class stmt(AST):
     """
     cboost AST statement
@@ -112,6 +143,7 @@ class Add(operator):
     """
     cboost Add
     """
+    r: str = '+'
 
 class AnnAssign(stmt):
     """
@@ -182,6 +214,18 @@ class BinOp(expr):
             'right': convert(bo.right)
         })
 
+    def _render(self, curr_indent: str = '', brackets: bool = True, **kwargs):
+        return curr_indent + ''.join([
+            '(' if brackets else '',
+            render(self.left),
+            ' ',
+            render(self.op),
+            ' ',
+            render(self.right),
+            ')' if brackets else ''
+        ])
+
+
 class Call(expr):
     """
     cboost Call
@@ -218,7 +262,7 @@ class Compare(expr):
     # cannot be translated to:
     # (a() < b() && (b() == b2()) && (b2() > c())
     # cause this will make some functions called twice
-    # moreover, once any of condition fails, remaining part should not be valuated at all
+    # moreover, once any condition fails, remaining part should not be evaluated at all
     #
     # verdict: we don't support more than one comparator
 
@@ -240,6 +284,17 @@ class Compare(expr):
             'ops': convert_list(cmpr.ops),
             'comparators': convert_list(cmpr.comparators)
         })
+
+    def _render(self, curr_indent: str = '', brackets: bool = True, **kwargs):
+        return curr_indent + ''.join([
+            '(' if brackets else '',
+            render(self.left),
+            ' ',
+            render(self.ops[0]),
+            ' ',
+            render(self.comparators[0]),
+            ')' if brackets else ''
+        ])
 
 class Constant(expr):
     """
@@ -269,8 +324,16 @@ class Constant(expr):
         c = cls(value=value)
         return c
 
+    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', brackets: bool = True):
+        match self.value:
+            case int(x)|float(x):
+                return str(x)
+            case str(x):
+                # TODO: string class!!!
+                return '"'+x.replace('"', '\\"')+'"'
+
 class Eq(cmpop):
-    ...
+    r: str = '=='
 
 class FunctionDef(stmt):
     name: str
@@ -296,9 +359,26 @@ class FunctionDef(stmt):
             'returns': convert(fd.returns)
         })
 
+    def _render_declaration(self):
+        try:
+            return_type = convert_type(self.returns.id)
+        except AttributeError:
+            raise Exception('Functions without return type annotations are not supported')
+        return return_type + ' ' + self.name + '(' + render(self.args) + ')'
+
+    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+        declaration = self._render_declaration()
+        return '\n'.join([
+            declaration,
+            '{',
+            *[render(b, indent, next_indent) for b in self.body],
+            '}',
+            ''
+        ])
+
 
 class Gt(cmpop):
-    ...
+    r: str = '>'
 
 class If(stmt):
     "cboost If"
@@ -319,11 +399,25 @@ class If(stmt):
         i = cls(test=test, body=body, orelse=orelse)
         return i
 
+    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+        return '\n'.join([
+            curr_indent + 'if (' + render(self.test, brackets=False) + ')',
+            curr_indent + '{',
+            *[render(b, indent, next_indent) for b in self.body],
+            curr_indent + '}',
+            *(
+            [
+                curr_indent + 'else {',
+                *[render(b, indent, next_indent) for b in self.orelse],
+                curr_indent + '}'
+            ] if len(self.orelse) else [])
+        ])
+
 class Lt(cmpop):
-    ...
+    r = '<'
 
 class LtE(cmpop):
-    ...
+    r = '<='
 
 class Module(mod):
     """
@@ -342,10 +436,18 @@ class Module(mod):
         m = cls(body=body)
         return m
 
+    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+        return '\n'.join([
+            f'// Module: {self} translated by cboost',
+            *[render(b, indent, next_indent) for b in self.body],
+            f'// End of module'
+        ])
+
 class Mult(operator):
     """
     mult operator
     """
+    r: str = '*'
 
 class Name(expr):
     """
@@ -366,6 +468,9 @@ class Name(expr):
         n = cls(id=id)
         return n
 
+    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+        return self.id
+
 class Return(stmt):
     value: ast.expr
 
@@ -377,6 +482,10 @@ class Return(stmt):
         return cls(**{
             'value': convert(r.value)
         })
+
+    def _render(self, curr_indent: str = '', **kwargs):
+        return curr_indent + 'return ' + render(self.value, brackets=False) + ';'
+
 
 class While(stmt):
     """
@@ -437,6 +546,9 @@ def dump(obj: AST, indent: int = 0, __current_indent: int = 0) -> str:
     else:
         return repr(obj)
 
+def render(obj: AST, indent: int = 4, curr_indent: str = '', brackets: bool = True) -> str:
+    return obj._render(indent=indent, curr_indent=curr_indent, next_indent=curr_indent+indent*' ', brackets=brackets)
+
 def convert(py_ast_object: ast.AST) -> AST:
     """
     Convert Python AST object to cboost AST
@@ -452,6 +564,15 @@ def convert_list(element_list: list) -> list:
     Convert list of Python AST objects to cboost AST objects
     """
     return [convert(e) for e in element_list]
+
+def convert_type(type_name: str) -> str:
+    """
+    Convert type
+    """
+    try:
+        return __type_conversions[type_name]
+    except KeyError:
+        return type_name + ' /* FIXME: Unknown type */'
 
 __class_conversions: dict = {
     ast.arg:        arg,
@@ -474,6 +595,12 @@ __class_conversions: dict = {
     ast.Name:       Name,
     ast.Return:     Return,
     ast.While:      While,
+}
+
+__type_conversions: dict = {
+    'int':          'long',
+    'float':        'double',
+    'str':          'string',
 }
 
 def translate_while_loop(wloop, indent: int=0) -> str:
