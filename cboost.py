@@ -251,6 +251,9 @@ class Call(expr):
             'keywords': convert_list(call.keywords)
         })
 
+    def _render(self, **kwargs):
+        return render(self.func) + '(' + ', '.join([render(a, brackets=False) for a in self.args]) + ')'
+
 class Compare(expr):
     """
     cboost AST compare
@@ -489,6 +492,11 @@ class Return(stmt):
     def _render(self, curr_indent: str = '', **kwargs):
         return curr_indent + 'return ' + render(self.value, brackets=False) + ';'
 
+class Sub(operator):
+    """
+    cboost Sub
+    """
+    r: str = '-'
 
 class While(stmt):
     """
@@ -597,6 +605,7 @@ __class_conversions: dict = {
     ast.Mult:       Mult,
     ast.Name:       Name,
     ast.Return:     Return,
+    ast.Sub:        Sub,
     ast.While:      While,
 }
 
