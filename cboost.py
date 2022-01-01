@@ -99,6 +99,18 @@ class arguments(AST):
             render(a) for na, a in enumerate(self.args)
         ])
 
+class boolop(AST):
+    """
+    cboost AST boolean op
+    """
+
+    @classmethod
+    def _from_py(cls, the_op: ast.boolop):
+        return cls()
+
+    def _render(self, **kwargs):
+        return self.r
+
 
 class cmpop(AST):
     """
@@ -144,6 +156,9 @@ class Add(operator):
     cboost Add
     """
     r: str = '+'
+
+class And(boolop):
+    r: str = '&&'
 
 class AnnAssign(stmt):
     """
@@ -226,6 +241,33 @@ class BinOp(expr):
             render(self.op),
             ' ',
             render(self.right),
+            ')' if brackets else ''
+        ])
+
+class BoolOp(expr):
+    """
+    cboost BoolOp
+    """
+    op: expr
+    values: list
+
+    def __init__(self, op: expr = None, values: list = []):
+        self.op = op
+        self.values = values
+
+    @classmethod
+    def _from_py(cls, bo: ast.BinOp):
+        return cls(**{
+            'op': convert(bo.op),
+            'values': convert_list(bo.values)
+        })
+
+    def _render(self, brackets: bool = True, **kwargs):
+        return ''.join([
+            '(' if brackets else '',
+            (' ' + render(self.op) + ' ').join([
+                render(v) for v in self.values
+            ]),
             ')' if brackets else ''
         ])
 
@@ -429,6 +471,9 @@ class Lt(cmpop):
 class LtE(cmpop):
     r = '<='
 
+class Mod(operator):
+    r: str = '%'
+
 class Module(mod):
     """
     cboost AST Module
@@ -480,6 +525,9 @@ class Name(expr):
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return self.id
+
+class Or(boolop):
+    r: str = '||'
 
 class Return(stmt):
     value: ast.expr
@@ -600,9 +648,11 @@ __class_conversions: dict = {
     ast.arg:        arg,
     ast.arguments:  arguments,
     ast.Add:        Add,
+    ast.And:        And,
     ast.AnnAssign:  AnnAssign,
     ast.Assign:     Assign,
     ast.BinOp:      BinOp,
+    ast.BoolOp:     BoolOp,
     ast.Call:       Call,
     ast.Compare:    Compare,
     ast.Constant:   Constant,
@@ -612,15 +662,18 @@ __class_conversions: dict = {
     ast.If:         If,
     ast.Lt:         Lt,
     ast.LtE:        LtE,
+    ast.Mod:        Mod,
     ast.Module:     Module,
     ast.Mult:       Mult,
     ast.Name:       Name,
+    ast.Or:         Or,
     ast.Return:     Return,
     ast.Sub:        Sub,
     ast.While:      While,
 }
 
 __type_conversions: dict = {
+    'bool':         'int',
     'int':          'long',
     'float':        'double',
     'str':          'string',
