@@ -6,6 +6,7 @@ import dis
 import os
 import hashlib
 import ctypes
+import dataclasses
 
 ALL_FUNCTIONS = {}
 IS_COMPILED = False
@@ -32,6 +33,48 @@ class AST:
         print(f'{ast.dump(ast_element, indent=8)}')  
         raise Exception(f'Not implemented {cls=}')
 
+class arg(AST):
+    arg: str
+    annotation: AST
+
+    def __init__(self, arg: str = "", annotation: AST = None):
+        self.arg = arg
+        self.annotation = annotation
+
+    @classmethod
+    def _from_py(cls, a: ast.arg):
+        """
+        arg
+        """
+        return cls(**{
+            'arg': a.arg,
+            'annotation': convert(a.annotation)
+        })
+
+class arguments(AST):
+    args: list
+    posonlyargs: list
+    kwonlyargs: list
+    kw_defaults: list
+    defaults: list
+
+    def __init__(self, args, posonlyargs, kwonlyargs, kw_defaults, defaults):
+        self.args = args
+        self.posonlyargs = posonlyargs
+        self.kwonlyargs = kwonlyargs
+        self.kw_defaults = kw_defaults
+        self.defaults = defaults
+
+    @classmethod
+    def _from_py(cls, a: ast.arguments):
+        return cls(**{
+            'args': convert_list(a.args),
+            'posonlyargs': convert_list(a.posonlyargs),
+            'kwonlyargs': convert_list(a.kwonlyargs),
+            'kw_defaults': convert_list(a.kw_defaults),
+            'defaults': convert_list(a.defaults)
+        })
+
 class cmpop(AST):
     """
     cboost AST comparing operation
@@ -56,9 +99,18 @@ class operator(AST):
     cboost AST Operator object
     """
 
+    @classmethod
+    def _from_py(cls, the_op: ast.operator):
+        return cls()
+
 class stmt(AST):
     """
     cboost AST statement
+    """
+
+class Add(operator):
+    """
+    cboost Add
     """
 
 class AnnAssign(stmt):
@@ -70,7 +122,7 @@ class AnnAssign(stmt):
     value: object = None
     simple: int = 0
 
-    def __init__(self, target: AST = None, annotation: AST = None, value: expr=None, simple:int =0):
+    def __init__(self, target: AST = None, annotation: AST = None, value: expr=None, simple: int =0):
         self.target = target
         self.value = value
         self.annotation = annotation
@@ -108,6 +160,48 @@ class Assign(stmt):
         value = convert(assign.value)
         a = cls(targets=targets, value=value)
         return a
+
+class BinOp(expr):
+    """
+    cboost BinOp
+    """
+    left: expr
+    right: expr
+    op: expr
+
+    def __init__(self, left: expr = None, op: expr = None, right: expr = None):
+        self.left = left
+        self.op = op
+        self.right = right
+
+    @classmethod
+    def _from_py(cls, bo: ast.BinOp):
+        return cls(**{
+            'left': convert(bo.left),
+            'op': convert(bo.op),
+            'right': convert(bo.right)
+        })
+
+class Call(expr):
+    """
+    cboost Call
+    """
+    func: expr
+    args: list
+    keywords: list # WTF?
+
+    def __init__(self, func: expr = None, args: list = [], keywords: list = []):
+        self.func = func
+        self.args = args
+        self.keywords = keywords
+
+    @classmethod
+    def _from_py(cls, call: ast.Call):
+        return cls(**{
+            'func': convert(call.func),
+            'args': convert_list(call.args),
+            'keywords': convert_list(call.keywords)
+        })
 
 class Compare(expr):
     """
@@ -178,6 +272,31 @@ class Constant(expr):
 class Eq(cmpop):
     ...
 
+class FunctionDef(stmt):
+    name: str
+    args: arguments
+    body: list
+    decorator_list: list
+    returns: expr
+
+    def __init__(self, name: str = '', args: arguments = None, body: list = [], decorator_list = None, returns = None):
+        self.name = name
+        self.args = args
+        self.body = body
+        self.decorator_list = decorator_list
+        self.returns = returns
+
+    @classmethod
+    def _from_py(cls, fd: ast.FunctionDef):
+        return cls(**{
+            'name': fd.name,
+            'args': convert(fd.args),
+            'body': convert_list(fd.body),
+            'decorator_list': convert_list(fd.decorator_list),
+            'returns': convert(fd.returns)
+        })
+
+
 class Gt(cmpop):
     ...
 
@@ -223,6 +342,11 @@ class Module(mod):
         m = cls(body=body)
         return m
 
+class Mult(operator):
+    """
+    mult operator
+    """
+
 class Name(expr):
     """
     cboost AST Name
@@ -241,6 +365,18 @@ class Name(expr):
         id = name.id
         n = cls(id=id)
         return n
+
+class Return(stmt):
+    value: ast.expr
+
+    def __init__(self, value: ast.expr = None):
+        self.value = value
+
+    @classmethod
+    def _from_py(cls, r: ast.Return):
+        return cls(**{
+            'value': convert(r.value)
+        })
 
 class While(stmt):
     """
@@ -273,24 +409,29 @@ def __convert_class(py_ast_class: type) -> type:
 
 def dump(obj: AST, indent: int = 0, __current_indent: int = 0) -> str:
     ii = ' ' * (indent + __current_indent)
-    def is_simple(obj):
-        return all(type(v) != list for v in vars(obj).values()) and len(vars(obj)) <= 3
     if isinstance(obj, AST):
+        def is_simple(obj):
+            return all(type(v) != list for v in vars(obj).values()) and (len(vars(obj)) <= 4)
         if is_simple(obj):
-            indent = 0
-            ii = ''
+            indent, ii = 0, ''
         return (
             f'{type(obj).__name__}'
             + '('
             + ('\n' if indent else '')
-            + (',\n' if indent else ', ').join([f'{ii}{p}=' + dump(v, indent=indent, __current_indent=__current_indent + indent) for (p, v) in vars(obj).items()])
+            + (',\n' if indent else ', ').join(
+                f'{ii}{p}=' + dump(v, indent=indent, __current_indent=__current_indent + indent) for (p, v) in vars(obj).items() if v != None
+            )
             + ')'
         )
     elif isinstance(obj, list):
+        if len(obj) == 0:
+            indent, ii = 0, ''
         return (
             '['
             + ('\n' if indent else '')
-            + (',\n' if indent else ', ').join(ii + dump(e, indent=indent, __current_indent=__current_indent + indent) for e in obj)
+            + (',\n' if indent else ', ').join(
+                ii + dump(e, indent=indent, __current_indent=__current_indent + indent) for e in obj
+                )
             + ']'
         )
     else:
@@ -300,6 +441,8 @@ def convert(py_ast_object: ast.AST) -> AST:
     """
     Convert Python AST object to cboost AST
     """
+    if py_ast_object == None:
+        return None
     kls = __convert_class(type(py_ast_object))
     ast_obj = kls._from_py(py_ast_object)
     return ast_obj
@@ -311,17 +454,25 @@ def convert_list(element_list: list) -> list:
     return [convert(e) for e in element_list]
 
 __class_conversions: dict = {
+    ast.arg:        arg,
+    ast.arguments:  arguments,
+    ast.Add:        Add,
     ast.AnnAssign:  AnnAssign,
     ast.Assign:     Assign,
+    ast.BinOp:      BinOp,
+    ast.Call:       Call,
     ast.Compare:    Compare,
     ast.Constant:   Constant,
     ast.Eq:         Eq,
+    ast.FunctionDef:    FunctionDef,
     ast.Gt:         Gt,
     ast.If:         If,
     ast.Lt:         Lt,
     ast.LtE:        LtE,
     ast.Module:     Module,
+    ast.Mult:       Mult,
     ast.Name:       Name,
+    ast.Return:     Return,
     ast.While:      While,
 }
 
