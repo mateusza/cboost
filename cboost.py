@@ -521,6 +521,13 @@ class While(stmt):
             'body': convert_list(wh.body)
         })
 
+    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+        return '\n'.join([
+            curr_indent + 'while (' + render(self.test, brackets=False) + '){',
+            *[render(b, indent, next_indent) for b in self.body],
+            curr_indent + '}'
+        ])
+
 def __convert_class(py_ast_class: type) -> type:
     """
     Convert Python AST class to cboost AST class
