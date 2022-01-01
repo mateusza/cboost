@@ -218,8 +218,8 @@ class BinOp(expr):
             'right': convert(bo.right)
         })
 
-    def _render(self, curr_indent: str = '', brackets: bool = True, **kwargs):
-        return curr_indent + ''.join([
+    def _render(self, brackets: bool = True, **kwargs):
+        return ''.join([
             '(' if brackets else '',
             render(self.left),
             ' ',
@@ -228,7 +228,6 @@ class BinOp(expr):
             render(self.right),
             ')' if brackets else ''
         ])
-
 
 class Call(expr):
     """
@@ -252,7 +251,12 @@ class Call(expr):
         })
 
     def _render(self, **kwargs):
-        return render(self.func) + '(' + ', '.join([render(a, brackets=False) for a in self.args]) + ')'
+        return ''.join([
+            render(self.func),
+            '(',
+            ', '.join([render(a, brackets=False) for a in self.args]),
+            ')'
+        ])
 
 class Compare(expr):
     """
@@ -292,8 +296,8 @@ class Compare(expr):
             'comparators': convert_list(cmpr.comparators)
         })
 
-    def _render(self, curr_indent: str = '', brackets: bool = True, **kwargs):
-        return curr_indent + ''.join([
+    def _render(self, brackets: bool = True, **kwargs):
+        return ''.join([
             '(' if brackets else '',
             render(self.left),
             ' ',
@@ -331,7 +335,7 @@ class Constant(expr):
         c = cls(value=value)
         return c
 
-    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', brackets: bool = True):
+    def _render(self, **kwargs):
         match self.value:
             case int(x)|float(x):
                 return str(x)
