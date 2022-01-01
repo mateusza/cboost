@@ -188,10 +188,14 @@ class Assign(stmt):
         """
         Convert Python AST Assign
         """
+        # TODO: Multiple assignments
         targets = convert_list(assign.targets)
         value = convert(assign.value)
         a = cls(targets=targets, value=value)
         return a
+
+    def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
+        return curr_indent + render(self.targets[0]) + ' = ' + render(self.value, brackets=False) + ';' if semicolon else ''
 
 class BinOp(expr):
     """
@@ -369,10 +373,10 @@ class FunctionDef(stmt):
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         declaration = self._render_declaration()
         return '\n'.join([
-            declaration,
-            '{',
+            curr_indent + declaration,
+            curr_indent + '{',
             *[render(b, indent, next_indent) for b in self.body],
-            '}',
+            curr_indent + '}',
             ''
         ])
 
@@ -401,8 +405,7 @@ class If(stmt):
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
-            curr_indent + 'if (' + render(self.test, brackets=False) + ')',
-            curr_indent + '{',
+            curr_indent + 'if (' + render(self.test, brackets=False) + '){',
             *[render(b, indent, next_indent) for b in self.body],
             curr_indent + '}',
             *(
@@ -436,10 +439,10 @@ class Module(mod):
         m = cls(body=body)
         return m
 
-    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+    def _render(self, indent: int = 4, curr_indent: str = '', **kwargs):
         return '\n'.join([
             f'// Module: {self} translated by cboost',
-            *[render(b, indent, next_indent) for b in self.body],
+            *[render(b, indent, curr_indent) for b in self.body],
             f'// End of module'
         ])
 
