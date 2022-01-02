@@ -1,4 +1,4 @@
-# `cboost`
+# cboost
 
 Boost your **python** code by automatically converting it to **C/C++** on the fly.
 
@@ -41,9 +41,9 @@ if __name__ == '__main__':
     print(f'{how_many_primes(n) = }')
 ```
 
-## Adding `cboost`
+## Using cboost
 
-Just add `import cboost` and decorate each function with `cboost.make_cpp`.
+Just `import cboost` and decorate each function with `cboost.make_cpp`.
 
 ```python
 import cboost                           # <-- import
@@ -58,6 +58,12 @@ def how_many_primes(limit: int) -> int:
 
 ...
 ```
+
+### Not using cboost
+
+You can temporarily disable `cboost` by calling `cboost.disable()` before calling decorated function.
+
+You can also `export CBOOST_DISABLE=1` before running the script.
 
 ## Generated C/C++ code:
 ```cpp
