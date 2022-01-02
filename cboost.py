@@ -225,6 +225,33 @@ class Attribute(expr):
     def _from_py(cls, attr):
         return cls()
 
+class AugAssign(stmt):
+    """
+    cboost AugAssign
+    """
+    target: list
+    op: AST
+    value: AST
+
+    def __init__(self, target=None, op=None, value=None):
+        self.target = target
+        self.op = op
+        self.value = value
+
+    @classmethod
+    def _from_py(cls, a: ast.Assign):
+        """
+        Convert Python AST AugAssign
+        """
+        return cls(
+            target=convert(a.target),
+            op=convert(a.op),
+            value=convert(a.value)
+        )
+
+    def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
+        return curr_indent + render(self.target) + ' ' + render(self.op) + '= ' + render(self.value, brackets=False) + ';' if semicolon else ''
+
 class BinOp(expr):
     """
     cboost BinOp
@@ -256,6 +283,15 @@ class BinOp(expr):
             render(self.right),
             ')' if brackets else ''
         ])
+
+class BitAnd(operator):
+    r: str = '&'
+
+class BitOr(operator):
+    r: str = '|'
+
+class BitXor(operator):
+    r: str = '^'
 
 class BoolOp(expr):
     """
@@ -416,6 +452,36 @@ class Constant(expr):
 
 class Eq(cmpop):
     r: str = '=='
+
+class For(stmt):
+    """
+    cboost AST For
+    """
+    target: expr
+    iter: expr
+    body: list
+    def __init__(self, target: expr=None, iter: expr = None, body: list=[]):
+        self.target = target
+        self.body = body
+        self.iter = iter
+
+    @classmethod
+    def _from_py(cls, fo: ast.While):
+        if len(fo.orelse):
+            raise Exception("For loops with strange 'else:' block are not supported yet")
+
+        return cls(
+            target=convert(fo.target),
+            iter=convert(fo.iter),
+            body=convert_list(fo.body)
+        )
+
+    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+        return '\n'.join([
+            curr_indent + 'for (auto ' + render(self.target) + ': ' + render(self.iter) + '){',
+            *[render(b, indent, next_indent) for b in self.body],
+            curr_indent + '}'
+        ])
 
 class FunctionDef(stmt):
     name: str
@@ -687,12 +753,17 @@ __class_conversions: dict = {
     ast.AnnAssign:  AnnAssign,
     ast.Assign:     Assign,
     ast.Attribute:  Attribute,
+    ast.AugAssign:  AugAssign,
     ast.BinOp:      BinOp,
+    ast.BitAnd:     BitAnd,
+    ast.BitOr:      BitOr,
+    ast.BitXor:     BitXor,
     ast.BoolOp:     BoolOp,
     ast.Call:       Call,
     ast.Compare:    Compare,
     ast.Constant:   Constant,
     ast.Eq:         Eq,
+    ast.For:        For,
     ast.FunctionDef:    FunctionDef,
     ast.Gt:         Gt,
     ast.If:         If,
