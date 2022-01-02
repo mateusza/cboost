@@ -11,7 +11,7 @@ def tribo_py(n: int) -> int:
         return 1
     return tribo_py(n-3) + tribo_py(n-2) + tribo_py(n-1)
 
-@cboost.make_c
+@cboost.make_cpp
 def tribo(n: int) -> int:
     if n in (0, ):
         return 0
@@ -21,7 +21,6 @@ def tribo(n: int) -> int:
 
 tribo(0)
 
-print()
 for i in range(10):
     print(f"{i = }")
     funcs = [tribo_py, tribo]
