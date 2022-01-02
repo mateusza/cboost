@@ -6,39 +6,101 @@ Everything happens automagically just by adding single `import` and a decorator.
 
 Read more about [current status, features, and bugs](TODO.md)...
 
-## Example python code to recursively calculate *n-th* term of Fibonacci sequence.
+## Example python code to [count number of primes](https://en.wikipedia.org/wiki/Prime-counting_function) less than *n*:
 
 ```python
-def fibo(n: int) -> int:
+def is_prime(n: int) -> bool:
     if n in (0, 1):
-        return n
-    return fibo(n-2) + fibo(n-1)
+        return False
+    if n in (2, 3):
+        return True
+    if n % 2 == 0:
+        return False
+    for d in range(3, n, 2):
+        if n % d == 0:
+            return False
+        if d * d > n:
+            break
+    return True
+
+def how_many_primes(limit: int) -> int:
+    how_many: int = 0
+    for i in range(2, limit):
+        if is_prime(i):
+            how_many += 1
+    return how_many
+
+if __name__ == '__main__':
+    import sys
+    try:
+        n = int(sys.argv[1])
+    except IndexError:
+        print(f'usage: {sys.argv[0]} N')
+        sys.exit(1)
+
+    print(f'{how_many_primes(n) = }')
 ```
 
 ## Adding `cboost`
 
-```python
-import cboost               # <-- import
+Just add `import cboost` and decorate each function with `cboost.make_cpp`.
 
-@cboost.make_cpp            # <-- decorator
-def fibo(n: int) -> int:
-    if n in (0, 1):
-        return n
-    return fibo(n-2) + fibo(n-1)
+```python
+import cboost                           # <-- import
+
+@cboost.make_cpp                        # <-- decorator
+def is_prime(n: int) -> bool:
+    ...
+
+@cboost.make_cpp                        # <-- decorator
+def how_many_primes(limit: int) -> int:
+    ...
+
+...
 ```
 
 ## Generated C/C++ code:
 ```cpp
 // Module translated by cboost
 extern "C" {
-long fibo(long n);
+int is_prime(long n);
+long how_many_primes(long limit);
 }
-long fibo(long n)
+int is_prime(long n)
 {
     if ((n == 0) || (n == 1)){
-        return n;
+        return 0;
     }
-    return fibo(n - 2) + fibo(n - 1);
+    if ((n == 2) || (n == 3)){
+        return 1;
+    }
+    if ((n % 2) == 0){
+        return 0;
+    }
+    /* This is translated from something else (eg. range()): */
+    for (auto d = 3; d < n; d += 2){
+        if ((n % d) == 0){
+            return 0;
+        }
+        if ((d * d) > n){
+            break;
+        }
+    }
+    /* Hope it works */
+    return 1;
+}
+
+long how_many_primes(long limit)
+{
+    int how_many = 0;
+    /* This is translated from something else (eg. range()): */
+    for (auto i = 2; i < limit; ++i){
+        if (is_prime(i)){
+            how_many += 1;
+        }
+    }
+    /* Hope it works */
+    return how_many;
 }
 
 // End of module
@@ -48,24 +110,25 @@ long fibo(long n)
 
 Without `cboost`:
 ```
-$ time CBOOST_DISABLE=1 ./example_primes.py 1000000
 Warning: cboost disabled by CBOOST_DISABLE
-how_many_primes(n) = 78498
+how_many_primes(n) = 664579
 
-real	0m8.506s
-user	0m8.494s
-sys	0m0.009s
+real	1m59.170s
+user	1m58.989s
+sys	0m0.112s
 ```
 
 With `cboost`:
 ```
-$ time ./example_primes.py 1000000
-how_many_primes(n) = 78498
+$ time ./example_primes.py 10000000
+how_many_primes(n) = 664579
 
-real	0m0.667s
-user	0m0.647s
-sys	0m0.020s
+real	0m7.972s
+user	0m7.957s
+sys	0m0.012s
 ```
+
+This simple example gives almost **15 times** performance boost.
 
 Testing environment:
 - CPU: **Intel(R) Core(TM) i5 CPU M 580  @ 2.67GHz**

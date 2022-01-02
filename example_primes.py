@@ -4,14 +4,13 @@ import cboost
 
 @cboost.make_cpp
 def is_prime(n: int) -> bool:
-    x: 'unsigned int' = 789
     if n in (0, 1):
         return False
     if n in (2, 3):
         return True
     if n % 2 == 0:
         return False
-    for d in range(3, n):
+    for d in range(3, n, 2):
         if n % d == 0:
             return False
         if d * d > n:
