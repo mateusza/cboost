@@ -20,7 +20,7 @@ def fibo(n: int) -> int:
 ```python
 import cboost
 
-@cboost.make_c
+@cboost.make_cpp
 def fibo(n: int) -> int:
     if n in (0, 1):
         return n
@@ -29,15 +29,49 @@ def fibo(n: int) -> int:
 
 ## Generated C/C++ code:
 ```cpp
+// Module translated by cboost
 extern "C" {
-long fibo (long n);
+long fibo(long n);
 }
-long fibo (long n){
-    if((n == 0) || (n == 1)){
+long fibo(long n)
+{
+    if ((n == 0) || (n == 1)){
         return n;
     }
-return (fibo((n - 2)) + fibo((n - 1)));
+    return fibo(n - 2) + fibo(n - 1);
 }
+
+// End of module
+```
+
+## Example benchmarks:
+
+With `cboost`:
+
+```
+$ time ./example_primes.py 1000000
+how_many_primes(n) = 78498
+
+real	0m0.667s
+user	0m0.647s
+sys	0m0.020s
+```
+
+Without `cboost`:
+```
+$ time CBOOST_DISABLE=1 ./example_primes.py 1000000
+Warning: cboost disabled by CBOOST_DISABLE
+how_many_primes(n) = 78498
+
+real	0m8.506s
+user	0m8.494s
+sys	0m0.009s
 ```
 
 
+Testing environment:
+- CPU: **Intel(R) Core(TM) i5 CPU M 580  @ 2.67GHz**
+- Python: **3.10.1**
+- OS: **Ubuntu 20.04.3 LTS**
+- Kernel: **Linux 5.4.0-91-generic**
+- gcc: **g++ (Ubuntu 9.3.0-17ubuntu1~20.04) 9.3.0**

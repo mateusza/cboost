@@ -8,7 +8,7 @@ Everything is buggy. You are lucky if it worked with your code.
 - `if` condition
 - `while` loop
 - `for` loop only when iterating over `range()` in incrementing order
-- `int`/`long` as return and argument type  only
+- `int`/`long` as return and argument type only
 - some arithmetic and boolean operators
 - only variables with explicitly given types (`a: int = 7`)
 
@@ -16,7 +16,6 @@ Everything is buggy. You are lucky if it worked with your code.
 - argument type mapping and support
 - `array`/`list` support
 - `string` support
-- loop control (`break` and `continue`)
 - pythonic loop control `else:`
 - missing arithmetic, bitwise, logical operators
 - python functions like:
