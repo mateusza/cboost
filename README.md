@@ -110,12 +110,13 @@ long how_many_primes(long limit)
 
 Without `cboost`:
 ```
+$ time CBOOST_DISABLE=1 ./example_primes.py 10000000
 Warning: cboost disabled by CBOOST_DISABLE
 how_many_primes(n) = 664579
 
 real	1m59.170s
 user	1m58.989s
-sys	0m0.112s
+sys     0m0.112s
 ```
 
 With `cboost`:
@@ -125,7 +126,7 @@ how_many_primes(n) = 664579
 
 real	0m7.972s
 user	0m7.957s
-sys	0m0.012s
+sys     0m0.012s
 ```
 
 This simple example gives almost **15 times** performance boost.
