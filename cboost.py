@@ -6,324 +6,969 @@ import dis
 import os
 import hashlib
 import ctypes
+import sys
+import functools
 
-ALL_FUNCTIONS = {}
-IS_COMPILED = False
-SO = None
+_boosted_functions: dict = {}
+_boosted_py_src: str = ''
+_disabled = False
 
-def translate_while_loop(wloop, indent: int=0) -> str:
-    ind = " " * 4
-    body = translate_body(wloop.body, indent=indent+4)
-    cond = translate_instruction(wloop.test, semicolon=False)
+def disable():
+    global _disabled
+    _disabled = True
 
-    return ind + f'while({cond})' + '{\n' + body + '\n' + ind + '}\n'
+@functools.cache
+def _is_disabled():
+    global _disabled
+    if _disabled:
+        return True
+    if os.getenv('CBOOST_DISABLE'):
+        sys.stderr.write('Warning: cboost disabled by CBOOST_DISABLE\n')
+        return True
+    return False
 
-def translate_range(r) -> (object, object, object):
-    match r.iter.args:
-        case [stop]:
-            sss = [ast.Constant(value=0), stop, ast.Constant(value=1)]
-        case [start, stop]:
-            sss = [start, stop, ast.Constant(value=1)]
-        case [start, stop, step]:
-            sss = [start, stop, step]
-    start, stop, step = sss
-    init = ast.AnnAssign(
-        target = r.target,
-        value = start,
-        annotation = ast.Name(id='int')
-    )
-    cond = ast.BinOp(
-        left = r.target,
-        right = stop,
-        op = ast.Lt()
-    )
-    inc = ast.AugAssign(
-        target = r.target,
-        op = ast.Add(),
-        value = step
-    )
-    return init, cond, inc
+class CppSource:
+    includes: set
+    declarations: list
+    definitions: list
 
-def translate_for_loop(floop, indent: int=0) -> str:
-    ind = ' ' * indent
-    body = translate_body(floop.body, indent=indent+4)
+    def __str__(self):
+        includes = [f'#include <{inc}>' for inc in self.includes]
+        declarations = [f'{dec};' for dec in self.decarations]
+        definitions = [f'{def_}\n' for def_ in self.definitions]
+        return '\n'.join([*includes, *declarations, *definitions])
+
+class AST:
+    """
+    cboost Abstract Syntax Tree element
+    """
+    def _render(self, indent: int = 4, curr_indent: str='', next_indent: str='', **kwargs):
+        """
+        Render element into C/C++ source code
+        """
+        return f'{curr_indent}/* AST {self} */'
+
+    @classmethod
+    def _from_py(cls, ast_element: ast.AST):
+        """
+        Create new element by converting Python AST Element
+        """
+        print(f'{ast_element=}')
+        print(f'{type(ast_element)=}')
+        print(f'{ast.dump(ast_element, indent=8)}')  
+        raise Exception(f'Not implemented {cls=}')
+
+class arg(AST):
+    arg: str
+    annotation: AST
+
+    def __init__(self, arg: str = "", annotation: AST = None):
+        self.arg = arg
+        self.annotation = annotation
+
+    @classmethod
+    def _from_py(cls, a: ast.arg):
+        """
+        arg
+        """
+        return cls(**{
+            'arg': a.arg,
+            'annotation': convert(a.annotation)
+        })
+
+    def _render(self, **kwargs):
+        try:
+            return_type = convert_type(self.annotation.id)
+        except AttributeError:
+            raise Exception('Arguments without type annotations are not supported')
+        return return_type + ' ' + self.arg
+
+class arguments(AST):
+    args: list
+    posonlyargs: list
+    kwonlyargs: list
+    kw_defaults: list
+    defaults: list
+
+    def __init__(self, args, posonlyargs, kwonlyargs, kw_defaults, defaults):
+        self.args = args
+        self.posonlyargs = posonlyargs
+        self.kwonlyargs = kwonlyargs
+        self.kw_defaults = kw_defaults
+        self.defaults = defaults
+
+    @classmethod
+    def _from_py(cls, a: ast.arguments):
+        return cls(**{
+            'args': convert_list(a.args),
+            'posonlyargs': convert_list(a.posonlyargs),
+            'kwonlyargs': convert_list(a.kwonlyargs),
+            'kw_defaults': convert_list(a.kw_defaults),
+            'defaults': convert_list(a.defaults)
+        })
+
+    def _render(self, **kwargs):
+        # FIXME: defaults
+
+        return ', '.join([
+            render(a) for na, a in enumerate(self.args)
+        ])
+
+class boolop(AST):
+    """
+    cboost AST boolean op
+    """
+
+    @classmethod
+    def _from_py(cls, the_op: ast.boolop):
+        return cls()
+
+    def _render(self, **kwargs):
+        return self.r
+
+
+class cmpop(AST):
+    """
+    cboost AST comparing operation
+    """
+
+    @classmethod
+    def _from_py(cls, the_op: ast.cmpop):
+        return cls()
+
+    def _render(self, **kwargs):
+        return self.r
+
+class expr(AST):
+    """
+    cboost AST expression
+    """
+
+class mod(AST):
+    """
+    cboost AST mod
+    """
+
+class operator(AST):
+    """
+    cboost AST Operator object
+    """
+
+    @classmethod
+    def _from_py(cls, the_op: ast.operator):
+        return cls()
+
+    def _render(self, **kwargs):
+        return self.r
+
+class stmt(AST):
+    """
+    cboost AST statement
+    """
+
+class Add(operator):
+    """
+    cboost Add
+    """
+    r: str = '+'
+
+class And(boolop):
+    r: str = '&&'
+
+class AnnAssign(stmt):
+    """
+    cboost AnnAssign
+    """
+    target: object = None
+    annotation: object = None
+    value: object = None
+    simple: int = 0
+
+    def __init__(self, target: AST = None, annotation: AST = None, value: expr=None, simple: int =0):
+        self.target = target
+        self.value = value
+        self.annotation = annotation
+        self.simple = simple
+
+    @classmethod
+    def _from_py(cls, a: ast.AnnAssign):
+        """
+        convert
+        """
+        target = convert(a.target)
+        value = convert(a.value)
+        if type(a.annotation) == ast.Constant:
+            annotation = Name(id=str(a.annotation.value))
+        else:
+            annotation = convert(a.annotation)
+        simple = a.simple
+
+        return cls(target=target, annotation=annotation, value=value, simple=simple)
+
+    def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
+        return curr_indent + render(self.annotation) + ' ' + render(self.target) + ' = ' + render(self.value, brackets=False) + (';' if semicolon else '')
+
+
+class Assign(stmt):
+    """
+    cboost Assign
+    """
+    targets: list = []
+    value = None
+    def __init__(self, targets=[], value=None):
+        self.targets = targets
+        self.value = value
+
+    @classmethod
+    def _from_py(cls, assign: ast.Assign):
+        """
+        Convert Python AST Assign
+        """
+        # TODO: Multiple assignments
+        targets = convert_list(assign.targets)
+        value = convert(assign.value)
+        a = cls(targets=targets, value=value)
+        return a
+
+    def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
+        return curr_indent + render(self.targets[0]) + ' = ' + render(self.value, brackets=False) + (';' if semicolon else '')
+
+class Attribute(expr):
+    """Attribute"""
+
+    @classmethod
+    def _from_py(cls, attr):
+        return cls()
+
+class AugAssign(stmt):
+    """
+    cboost AugAssign
+    """
+    target: list
+    op: AST
+    value: AST
+
+    def __init__(self, target=None, op=None, value=None):
+        self.target = target
+        self.op = op
+        self.value = value
+
+    @classmethod
+    def _from_py(cls, a: ast.Assign):
+        """
+        Convert Python AST AugAssign
+        """
+        return cls(
+            target=convert(a.target),
+            op=convert(a.op),
+            value=convert(a.value)
+        )
+
+    def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
+        return curr_indent + render(self.target) + ' ' + render(self.op) + '= ' + render(self.value, brackets=False) + (';' if semicolon else '')
+
+class BinOp(expr):
+    """
+    cboost BinOp
+    """
+    left: expr
+    right: expr
+    op: expr
+
+    def __init__(self, left: expr = None, op: expr = None, right: expr = None):
+        self.left = left
+        self.op = op
+        self.right = right
+
+    @classmethod
+    def _from_py(cls, bo: ast.BinOp):
+        return cls(**{
+            'left': convert(bo.left),
+            'op': convert(bo.op),
+            'right': convert(bo.right)
+        })
+
+    def _render(self, brackets: bool = True, **kwargs):
+        return ''.join([
+            '(' if brackets else '',
+            render(self.left),
+            ' ',
+            render(self.op),
+            ' ',
+            render(self.right),
+            ')' if brackets else ''
+        ])
+
+class BitAnd(operator):
+    r: str = '&'
+
+class BitOr(operator):
+    r: str = '|'
+
+class BitXor(operator):
+    r: str = '^'
+
+class BoolOp(expr):
+    """
+    cboost BoolOp
+    """
+    op: expr
+    values: list
+
+    def __init__(self, op: expr = None, values: list = []):
+        self.op = op
+        self.values = values
+
+    @classmethod
+    def _from_py(cls, bo: ast.BinOp):
+        return cls(**{
+            'op': convert(bo.op),
+            'values': convert_list(bo.values)
+        })
+
+    def _render(self, brackets: bool = True, **kwargs):
+        return ''.join([
+            '(' if brackets else '',
+            (' ' + render(self.op) + ' ').join([
+                render(v) for v in self.values
+            ]),
+            ')' if brackets else ''
+        ])
+
+class Break(stmt):
+    def __init__(self):
+        ...
+
+    @classmethod
+    def _from_py(cls, b=None):
+        return cls()
+
+    def _render(self, curr_indent: str ='',  semicolon=True, **kwargs):
+        return f'{curr_indent}break' + (';' if semicolon else '')
+
+class Call(expr):
+    """
+    cboost Call
+    """
+    func: expr
+    args: list
+    keywords: list # WTF?
+
+    def __init__(self, func: expr = None, args: list = [], keywords: list = []):
+        self.func = func
+        self.args = args
+        self.keywords = keywords
+
+    @classmethod
+    def _from_py(cls, call: ast.Call):
+        return cls(**{
+            'func': convert(call.func),
+            'args': convert_list(call.args),
+            'keywords': convert_list(call.keywords)
+        })
+
+    def _render(self, **kwargs):
+        return ''.join([
+            render(self.func),
+            '(',
+            ', '.join([render(a, brackets=False) for a in self.args]),
+            ')'
+        ])
+
+class Compare(expr):
+    """
+    cboost AST compare
+    """
+    # TODO: 
+    # Python allow for multiple comparisons in single expression:
+    # a < b == b2 > c
+    # effectively this should be considered equal to:
+    # (a < b) && (b == b2) && (b2 > c)
+    # but Python makes each expression evaluated only once
+    # so following expression:
+    # a() < b() == b2() > c()
+    # cannot be translated to:
+    # (a() < b() && (b() == b2()) && (b2() > c())
+    # cause this will make some functions called twice
+    # moreover, once any condition fails, remaining part should not be evaluated at all
+    #
+    # verdict: we don't support more than one comparator
+
+    left: expr
+    ops: list
+    comparators: list
+
+    def __init__(self, left: expr = None, ops: list = [], comparators: list = []):
+        self.left = left
+        self.ops = ops
+        self.comparators = comparators
+
+    @classmethod
+    def _from_py(cls, cmpr: ast.Compare):
+        if len(cmpr.comparators) > 1:
+            raise Exception("Expressions with multiple comparisons are not supported yet")
+
+        # Special case: In()
+        if type(cmpr.ops[0]) == ast.In:
+            try:
+                elts: list = cmpr.comparators[0].elts
+                return BoolOp(
+                    op=Or(),
+                    values=[Compare(
+                        left=convert(cmpr.left),
+                        comparators=[convert(e)],
+                        ops=[Eq()]
+                    ) for e in elts]
+                )
+            except AttributeError:
+                raise Exception("Unable to rewrite 'in' comparison")
+
+        return cls(**{
+            'left': convert(cmpr.left),
+            'ops': convert_list(cmpr.ops),
+            'comparators': convert_list(cmpr.comparators)
+        })
+
+    def _render(self, brackets: bool = True, **kwargs):
+        return ''.join([
+            '(' if brackets else '',
+            render(self.left),
+            ' ',
+            render(self.ops[0]),
+            ' ',
+            render(self.comparators[0]),
+            ')' if brackets else ''
+        ])
+
+class Constant(expr):
+    """
+    cboost AST constant
+    """
+    value: object
+    def __init__(self, value: object=None):
+        self.value = value
+
+    @classmethod
+    def _from_py(cls, const: ast.Constant):
+        """
+        convert AST Constant
+        """
+        # TODO:
+        # some python constants needs conversion to C/C++ literals, types etc
+        # - booleans !!!
+        # - None -> nullptr !!
+        # - big ints (https://faheel.github.io/BigInt/)
+        # - ...
+
+        value = const.value
+        if value in [True, False]:
+            value = int(value)
+        if value == None:
+            value = 0
+        c = cls(value=value)
+        return c
+
+    def _render(self, **kwargs):
+        match self.value:
+            case int(x)|float(x):
+                return str(x)
+            case str(x):
+                # TODO: string class!!!
+                return '"'+x.replace('"', '\\"')+'"'
+
+class Continue(stmt):
+    def __init__(self):
+        ...
+
+    @classmethod
+    def _from_py(cls, c=None):
+        return cls()
+
+    def _render(self, curr_indent: str ='',  semicolon=True, **kwargs):
+        return f'{curr_indent}continue' + (';' if semicolon else '')
+
+
+class Eq(cmpop):
+    r: str = '=='
+
+class For(stmt):
+    """
+    cboost AST For
+    """
+    target: expr
+    iter: expr
+    body: list
+    def __init__(self, target: expr=None, iter: expr = None, body: list=[]):
+        self.target = target
+        self.body = body
+        self.iter = iter
+
+    @classmethod
+    def _from_py(cls, fo: ast.For):
+        if len(fo.orelse):
+            raise Exception("For loops with strange 'else:' block are not supported yet")
+
+        if type(fo.iter) == ast.Call and fo.iter.func.id == 'range':
+            return ForCStyle._from_py(fo)
+
+        return cls(
+            target=convert(fo.target),
+            iter=convert(fo.iter),
+            body=convert_list(fo.body)
+        )
+
+    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+        return '\n'.join([
+            '',
+            curr_indent + '/* This is probably not what you need: */',
+            curr_indent + 'for (auto ' + render(self.target) + ': ' + render(self.iter) + '){',
+            *[render(b, indent, next_indent) for b in self.body],
+            curr_indent + '}',
+            curr_indent + '/* Sorry for the inconvinience */',
+            ''
+        ])
+
+class ForCStyle(stmt):
+    init: stmt
+    cond: expr
+    incr: stmt
+    body: list
+
+    def __init__(self, init=None, cond=None, incr=None, body=[]):
+        self.init = init
+        self.cond = cond
+        self.incr = incr
+        self.body = body
+
+    @classmethod
+    def _from_py(cls, fo: ast.For):
+        target = convert(fo.target)
+        r_args = fo.iter.args
+        match len(r_args):
+            case 1:
+                start, stop, step = Constant(value=0), convert(r_args[0]), Constant(value=1)
+            case 2:
+                start, stop, step = convert(r_args[0]), convert(r_args[1]), Constant(value=1)
+            case 3:
+                start, stop, step = convert_list(r_args)
+            case _:
+                raise Exception("Unknown range() syntax")
+
+        if type(step) == Constant and step.value == 1:
+            incr = IncrDecr(target=target, op=Add(), post=False)
+        else:
+            incr = AugAssign(target=target, op=Add(), value=step)
+
+        return cls(
+            init=AnnAssign(target=target, annotation=Name(id='auto'), value=start, simple=1),
+            cond=Compare(left=target, ops=[Lt()], comparators=[stop]),
+            incr=incr,
+            body=convert_list(fo.body)
+        )
+
+
+    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+        return '\n'.join([
+            curr_indent + '/* This is translated from something else (eg. range()): */',
+            curr_indent + 'for ('
+                + render(self.init, semicolon=False) + '; '
+                + render(self.cond, brackets=False) + '; '
+                + render(self.incr, semicolon=False, brackets=False) + '){',
+            *[render(b, indent, next_indent) for b in self.body],
+            curr_indent + '}',
+            curr_indent + '/* Hope it works */'
+        ])
+
+class FunctionDef(stmt):
+    name: str
+    args: arguments
+    body: list
+    decorator_list: list
+    returns: expr
+
+    def __init__(self, name: str = '', args: arguments = None, body: list = [], decorator_list = None, returns = None):
+        self.name = name
+        self.args = args
+        self.body = body
+        self.decorator_list = decorator_list
+        self.returns = returns
+
+    @classmethod
+    def _from_py(cls, fd: ast.FunctionDef):
+        return cls(**{
+            'name': fd.name,
+            'args': convert(fd.args),
+            'body': convert_list(fd.body),
+            'decorator_list': convert_list(fd.decorator_list),
+            'returns': convert(fd.returns)
+        })
+
+    def _render_declaration(self):
+        try:
+            return_type = convert_type(self.returns.id)
+        except AttributeError:
+            raise Exception('Functions without return type annotations are not supported')
+        return return_type + ' ' + self.name + '(' + render(self.args) + ')'
+
+    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+        declaration = self._render_declaration()
+        return '\n'.join([
+            curr_indent + declaration,
+            curr_indent + '{',
+            *[render(b, indent, next_indent) for b in self.body],
+            curr_indent + '}',
+            ''
+        ])
+
+
+class Gt(cmpop):
+    r: str = '>'
+
+class IncrDecr(expr):
+    target: expr
+    op: operator
+    post: bool
+
+    def __init__(self, target: expr = None, op: operator = None, post: bool = True):
+        self.target = target
+        self.op = op
+        self.post = post
+
+    def _render(self, brackets=True, **kwargs):
+        target = render(self.target)
+        op = render(self.op)*2
+        v = [target, op] if self.post else [op, target]
+        return (
+            ('(' if brackets else '')
+            + ''.join(v)
+            + (')' if brackets else '')
+        )
+
+class In(cmpop):
+    """This shouldn't be used at all as C++ doesn't have direct syntactical equivalent"""
+    def __init__(self):
+        raise Exception('Use of In() is impossible')
+
+class If(stmt):
+    "cboost If"
+    test: expr = None
+    body: list = None
+    orelse: list = None
+
+    def __init__(self, test: expr = None, body: list = [], orelse: list = []):
+        self.test = test
+        self.body = body
+        self.orelse = orelse
+
+    @classmethod
+    def _from_py(cls, the_if: ast.If):
+        test = convert(the_if.test)
+        body = convert_list(the_if.body)
+        orelse = convert_list(the_if.orelse)
+        i = cls(test=test, body=body, orelse=orelse)
+        return i
+
+    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+        return '\n'.join([
+            curr_indent + 'if (' + render(self.test, brackets=False) + '){',
+            *[render(b, indent, next_indent) for b in self.body],
+            curr_indent + '}',
+            *(
+            [
+                curr_indent + 'else {',
+                *[render(b, indent, next_indent) for b in self.orelse],
+                curr_indent + '}'
+            ] if len(self.orelse) else [])
+        ])
+
+class Lt(cmpop):
+    r = '<'
+
+class LtE(cmpop):
+    r = '<='
+
+class Mod(operator):
+    r: str = '%'
+
+class Module(mod):
+    """
+    cboost AST Module
+    """
+    body: list
+    def __init__(self, body: list=[]):
+        self.body = body
+
+    @classmethod
+    def _from_py(cls, module: ast.Module):
+        """
+        Convert Python AST Module
+        """
+        body = convert_list(module.body)
+        m = cls(body=body)
+        return m
+
+    def _render(self, indent: int = 4, curr_indent: str = '', **kwargs):
+        return '\n'.join([
+            f'// Module translated by cboost',
+            'extern "C" {',
+            *[f._render_declaration() +';' for f in self.body if isinstance(f, FunctionDef)],
+            '}',
+            *[render(b, indent, curr_indent) for b in self.body],
+            f'// End of module'
+        ])
+
+class Mult(operator):
+    """
+    mult operator
+    """
+    r: str = '*'
+
+class Name(expr):
+    """
+    cboost AST Name
+    """
+    id: str
+    ctx: object
+    def __init__(self, id: str='', ctx: object = None):
+        self.id = id
+        self.ctx = ctx
+
+    @classmethod
+    def _from_py(cls, name: ast.Name):
+        """
+        convert Python AST Name
+        """
+        id = name.id
+        n = cls(id=id)
+        return n
+
+    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+        return self.id
+
+class Or(boolop):
+    r: str = '||'
+
+class Return(stmt):
+    value: ast.expr
+
+    def __init__(self, value: ast.expr = None):
+        self.value = value
+
+    @classmethod
+    def _from_py(cls, r: ast.Return):
+        return cls(**{
+            'value': convert(r.value)
+        })
+
+    def _render(self, curr_indent: str = '', **kwargs):
+        return curr_indent + 'return ' + render(self.value, brackets=False) + ';'
+
+class Sub(operator):
+    """
+    cboost Sub
+    """
+    r: str = '-'
+
+class While(stmt):
+    """
+    cboost AST While
+    """
+    test: expr
+    body: list
+    def __init__(self, test: expr=None, body: list=[]):
+        self.test = test
+        self.body = body
+
+    @classmethod
+    def _from_py(cls, wh: ast.While):
+        if len(wh.orelse):
+            raise Exception("While loops with strange 'else:' block are not supported yet")
+        return cls(**{
+            'test': convert(wh.test),
+            'body': convert_list(wh.body)
+        })
+
+    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+        return '\n'.join([
+            curr_indent + 'while (' + render(self.test, brackets=False) + '){',
+            *[render(b, indent, next_indent) for b in self.body],
+            curr_indent + '}'
+        ])
+
+def __convert_class(py_ast_class: type) -> type:
+    """
+    Convert Python AST class to cboost AST class
+    """
+    global __class_conversions
     try:
-        assert type(floop.iter) == ast.Call
-        assert floop.iter.func.id == 'range'
-        init, cond, inc = translate_range(floop)
-    except AssertionError:
-        raise Error(f'Not supported. /* {ast.dump(floop)} */')
+        return __class_conversions[py_ast_class]
+    except KeyError as e:
+        raise Exception(f'Class not supported: {py_ast_class}')
 
-    init = translate_instruction(init)
-    cond = translate_instruction(cond)
-    inc = translate_instruction(inc, semicolon=False)
+def dump(obj: AST, indent: int = 0, __current_indent: int = 0) -> str:
+    ii = ' ' * (indent + __current_indent)
+    if isinstance(obj, AST):
+        def is_simple(obj):
+            return all(type(v) != list for v in vars(obj).values()) and (len(vars(obj)) <= 4)
+        if is_simple(obj):
+            indent, ii = 0, ''
+        return (
+            f'{type(obj).__name__}'
+            + '('
+            + ('\n' if indent else '')
+            + (',\n' if indent else ', ').join(
+                f'{ii}{p}=' + dump(v, indent=indent, __current_indent=__current_indent + indent) for (p, v) in vars(obj).items() if v != None
+            )
+            + ')'
+        )
+    elif isinstance(obj, list):
+        if len(obj) == 0:
+            indent, ii = 0, ''
+        return (
+            '['
+            + ('\n' if indent else '')
+            + (',\n' if indent else ', ').join(
+                ii + dump(e, indent=indent, __current_indent=__current_indent + indent) for e in obj
+                )
+            + ']'
+        )
+    else:
+        return repr(obj)
 
-    return ind + f'for ({init} {cond} {inc})' + '{\n' + body + '\n' + ind + '}\n'
+def render(obj: AST, indent: int = 4, curr_indent: str = '', brackets: bool = True, semicolon: bool = True) -> str:
+    return obj._render(indent=indent, curr_indent=curr_indent, next_indent=curr_indent+indent*' ', brackets=brackets, semicolon=semicolon)
 
-def translate_augassign(asgn) -> str:
-    vname = asgn.target.id
-    vval = translate_value(asgn.value)
-    sign = translate_op(asgn.op)
-    return f'{vname} {sign}= {vval}'
+def convert(py_ast_object: ast.AST) -> AST:
+    """
+    Convert Python AST object to cboost AST
+    """
+    if py_ast_object == None:
+        return None
+    kls = __convert_class(type(py_ast_object))
+    ast_obj = kls._from_py(py_ast_object)
+    return ast_obj
 
-def translate_assign(asgn) -> str:
-    match len(asgn.targets):
-        case 1:
-            vname = asgn.targets[0].id
-            vval = translate_value(asgn.value)
-            return f"{vname} = {vval}"
-    return f'/* Multiple assign not supported {ast.dump(asgn)} */'
+def convert_list(element_list: list) -> list:
+    """
+    Convert list of Python AST objects to cboost AST objects
+    """
+    return [convert(e) for e in element_list]
 
-def translate_annassign(asgn) -> str:
-    vname = asgn.target.id
-    vtype = translate_type(asgn.annotation)
-    if asgn.value == None:
-        return f"{vtype} {vname}"
-    vval = translate_value(asgn.value)
-    return f"{vtype} {vname} = {vval}"
+def convert_type(type_name: str) -> str:
+    """
+    Convert type
+    """
+    try:
+        return __type_conversions[type_name]
+    except KeyError:
+        return type_name + ' /* FIXME: Unknown type */'
 
-def translate_call(fcall) -> str:
-    fname = fcall.func.id
-    params = []
-    for p in fcall.args:
-        params.append(translate_value(p))
-    return f"{fname}(" + ", ".join(params) + ")"
+__class_conversions: dict = {
+    ast.arg:        arg,
+    ast.arguments:  arguments,
+    ast.Add:        Add,
+    ast.And:        And,
+    ast.AnnAssign:  AnnAssign,
+    ast.Assign:     Assign,
+    ast.Attribute:  Attribute,
+    ast.AugAssign:  AugAssign,
+    ast.BinOp:      BinOp,
+    ast.BitAnd:     BitAnd,
+    ast.BitOr:      BitOr,
+    ast.BitXor:     BitXor,
+    ast.BoolOp:     BoolOp,
+    ast.Break:      Break,
+    ast.Call:       Call,
+    ast.Compare:    Compare,
+    ast.Constant:   Constant,
+    ast.Continue:   Continue,
+    ast.Eq:         Eq,
+    ast.For:        For,
+    ast.FunctionDef:    FunctionDef,
+    ast.Gt:         Gt,
+    ast.If:         If,
+    ast.In:         In,
+    ast.Lt:         Lt,
+    ast.LtE:        LtE,
+    ast.Mod:        Mod,
+    ast.Module:     Module,
+    ast.Mult:       Mult,
+    ast.Name:       Name,
+    ast.Or:         Or,
+    ast.Return:     Return,
+    ast.Sub:        Sub,
+    ast.While:      While,
+}
 
-def translate_in_to_ors(cmpr: ast.Compare) -> str:
-    values = [
-       ast.Compare(left=cmpr.left, comparators=[elt], ops=[ast.Eq()])
-       for elt in cmpr.comparators[0].elts
-    ]
-    
-    new_or = ast.BoolOp(op=ast.Or(), values=values)
-    return translate_boolop(new_or)
+__type_conversions: dict = {
+    'bool':         'int',
+    'int':          'long',
+    'float':        'double',
+    'str':          'string',
+}
 
-def translate_notin_to_and(cmpr: ast.Compare) -> str:
-    values = [
-       ast.Compare(left=cmpr.left, comparators=[elt], ops=[ast.NotEq()])
-       for elt in cmpr.comparators[0].elts
-    ]
-    
-    new_and = ast.BoolOp(op=ast.And(), values=values)
-    return translate_boolop(new_and)
+def make_cpp(func: object) -> object:
+    if _is_disabled():
+        return func
 
-def translate_op(op) -> str:
-    match op:
-        case ast.Eq():
-            return '=='
-        case ast.NotEq():
-            return '!='
-        case ast.Lt():
-            return "<"
-        case ast.LtE():
-            return "<="
-        case ast.Gt():
-            return '>'
-        case ast.Add():
-            return "+"
-        case ast.Mult():
-            return "*"
-        case ast.Sub()|ast.USub():
-            return "-"
-        case ast.Mod():
-            return '%'
-        case ast.Or():
-            return '||'
-        case ast.And():
-            return '&&'
-        case ast.Div()|ast.FloorDiv():
-            return '/'
-    return f"/* UNKNOWN OPERATOR: {ast.dump(op)} */"
+    name = _make_cpp(func)
 
-def translate_compare(cmpr: ast.Compare) -> str:
-    match cmpr.ops[0]:
-        case ast.In():
-            return translate_in_to_ors(cmpr)
-        case ast.NotIn():
-            return translate_notin_to_and(cmpr)
-    left = translate_value(cmpr.left)
-    right = translate_value(cmpr.comparators[0])
-    sign = translate_op(cmpr.ops[0])
-    return f'({left} {sign} {right})'
+    def cboost_wrapper(*args, **kwargs):
+        return call(name, args, kwargs)
 
-def translate_constant(const) -> str:
-    v = const.value
-    match v:
-        case bool(b):
-            return '01'[int(b)]
-        case int(i):
-            return f'{i}'
-        case float(i):
-            return f'{i}'
-    return f'CONSTANT /*{ast.dump(const)}*/';
+    return cboost_wrapper
 
-def translate_binop(op) -> str:
-    left = translate_value(op.left)
-    right = translate_value(op.right)
-    sign = translate_op(op.op)
-    return f"({left} {sign} {right})"
+def find_function_name(py_src):
+    """FIXME"""
+    return ast.parse(py_src).body[0].name
 
-def translate_unaryop(op) -> str:
-    operand = translate_value(op.operand)
-    sign = translate_op(op.op)
-    return f"({sign} {operand})"
-
-def translate_boolop(op) -> str:
-    values2 = [translate_value(v) for v in op.values]
-    sign = translate_op(op.op)
-    return f' {sign} '.join(values2)
-
-def translate_var(value) -> str:
-    return value.id
-
-def translate_value(value) -> str:
-    match value:
-        case ast.Name():
-            return translate_var(value)
-        case ast.BinOp():
-            return translate_binop(value)
-        case ast.UnaryOp():
-            return translate_unaryop(value)
-        case ast.BoolOp():
-            return translate_boolop(value)
-        case ast.Constant():
-            return translate_constant(value)
-        case ast.Call():
-            return translate_call(value)
-        case ast.Compare():
-            return translate_compare(value)
-    return f'VALUE: {ast.dump(value)}'
-
-def translate_test(the_test) -> str:
-    return translate_value(the_test)
-
-def translate_if(instruction, indent: int=0) -> str:
-    ind = " " * indent
-    condition = translate_test(instruction.test)
-    body = translate_body(instruction.body, indent=indent)
-    return ind + "if(" + condition + "){\n" + body + "\n" + ind + "}"
-
-def translate_return(instruction) -> str:
-    value = translate_value(instruction.value)
-    return f'return {value}'
-
-def translate_type(annotation) -> str:
-    match annotation.id:
-        case 'int':
-            return 'long'
-        case 'float':
-            return 'double'
-        case 'bool':
-            return 'int'
-    return f'UNKNOWN_TYPE /*{ast.dump(annotation)}*/'
-
-def translate_body(body, indent: int=0) -> str:
-    instructions = []
-    for instr in body:
-        i = translate_instruction(instr, indent=indent)
-        instructions.append(indent*" " + i)
-    return "\n".join(instructions)
-
-def translate_instruction(ins, semicolon=True, indent: int=0) -> str:
-    sc = ";" if semicolon else ""
-    ind = " " * indent
-    match ins:
-        case ast.If():
-            return ind + translate_if(ins, indent=indent + 4)
-        case ast.While():
-            return ind + translate_while_loop(ins, indent=indent + 4)
-        case ast.Return():
-            return ind + translate_return(ins) + sc
-        case ast.AnnAssign():
-            return ind + translate_annassign(ins) + sc
-        case ast.Assign():
-            return ind + translate_assign(ins) + sc
-        case ast.AugAssign():
-            return ind + translate_augassign(ins) + sc
-        case ast.For():
-            return ind + translate_for_loop(ins, indent=indent + 4)
-    return ind + translate_value(ins) + sc
-
-def translate_arg(arg: ast.arg) -> str:
-    name = arg.arg
-    the_type = translate_type(arg.annotation)
-    return f'{the_type} {name}'
-
-def translate_args(arguments: ast.arguments) -> str:
-    args = []
-    for a in arguments.args:
-        aa = translate_arg(a)
-        args.append(aa)
-    return ", ".join(args)
-
-def get_arg_types(arguments: ast.arguments) -> list:
-    args = []
-    for a in arguments.args:
-        aa = translate_arg(a)
-        args.append(aa)
-    return ", ".join(args)
-
-
-def translate_function(fcode: ast.FunctionDef) -> (str, str, str):
-    function_name: str = fcode.name
-    return_type: str = translate_type(fcode.returns)
-    arguments: str = translate_args(fcode.args)
-    instructions: str = translate_body(fcode.body)
-    hdr: str = f'{return_type} {function_name} ({arguments})'
-    body: str = hdr + '{\n' + instructions + '\n}\n'
-    return function_name, hdr+';', body
-
-def translate_module(mod: ast.Module) -> (str, str, str):
-    element = mod.body[0]
-    match element:
-        case ast.FunctionDef():
-            return translate_function(element)
-    return '???', '???', f'/* unknown element: {ast.dump(element)} */'
-
-def process_python_func(func: object) -> str:
-    python_src = inspect.getsource(func)
-    tree = ast.parse(python_src)
-    name, hdr, c = translate_module(tree)
-    ALL_FUNCTIONS[name] = {"n": name, "h": hdr, "c": c, "ptr": None}
+def _make_cpp(func: object) -> str:
+    global _boosted_py_src
+    python_src: str = inspect.getsource(func)
+    _boosted_py_src += python_src + '\n\n'
+    name = find_function_name(python_src)
+    _boosted_functions[name] = None
     return name
 
-def make_c(func: object) -> object:
-    name = process_python_func(func)
-
-    def new_func(*args, **kwargs):
-        return execute_c_func(name, args, kwargs)
-
-    return new_func
-
-def execute_c_func(name: str, args, kwargs):
-    global LIBNAME
-    if not IS_COMPILED:
-        compile_c()
-    f = ALL_FUNCTIONS[name]['ptr']
+def call(name: str, args: list, kwargs: dict):
+    f = _boosted_functions[name]
+    if f == None:
+        _load_so()
+        f = _boosted_functions[name] # once again
     return f(*args, **kwargs)
-    
-def make_c_code() -> str:
-    hdrs = (['extern "C" {'] +
-           [f['h'] for f in ALL_FUNCTIONS.values()] +
-           ['}'])
-    code = [f['c'] for f in ALL_FUNCTIONS.values()]
-    return "\n".join(hdrs + code)
 
-def compile_c():
-    c_code = make_c_code()
-    global IS_COMPILED
-    fid = hashlib.sha256(c_code.encode()).hexdigest()[0:16]
-    prefix = '__pycache__/cboost-'
-    tc = f'{prefix}{fid}.cpp'
-    tso = f'{prefix}{fid}.so'
-    tlog = f'{prefix}{fid}.log'
-    with open(tc, 'w') as f:
-        f.write(c_code)
-    cmd = f'g++ -Wall -O3 -shared -o {tso} {tc} > {tlog}'
-    ret = os.system(cmd)
-    assert ret == 0
-    SO = ctypes.cdll.LoadLibrary(tso)
-    IS_COMPILED = True
-    for n in ALL_FUNCTIONS.keys():
-        ALL_FUNCTIONS[n]['ptr'] = SO[n]
+def _cpp_id(cpp_src: str) -> str:
+    return hashlib.sha256(cpp_src.encode()).hexdigest()[0:24]
+
+def _load_so():
+    global _boosted_py_src
+    python_ast: ast.AST = ast.parse(_boosted_py_src)
+    cpp_ast: AST = convert(python_ast)
+    cpp_src: str = render(cpp_ast)
+
+    cpp_id = _cpp_id(cpp_src)
+
+    dirname = '__pycache__/__cboost__'
+    os.makedirs(dirname, exist_ok=True)
+
+    fn_basename = f'{dirname}/{cpp_id}'
+    fn_so = f'{fn_basename}.so'
+
+    if not os.path.exists(fn_so):
+        fn_cpp = f'{fn_basename}.cpp'
+        fn_errors = f'{fn_basename}.log'
+
+        with open(fn_cpp, 'w') as f:
+            f.write(cpp_src)
+        # TODO: compiler, options, flags, etc
+        gcc_cmd = f'g++ -Wall -O2 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
+        gcc_ret = os.system(gcc_cmd)
+        if gcc_ret != 0:
+            raise Exception(f'C++ compilation failed. See {fn_errors} for details.')
+        os.unlink(fn_errors)
+
+    so = ctypes.cdll.LoadLibrary(fn_so)
+
+    for name in _boosted_functions.keys():
+        _boosted_functions[name] = so[name]
 
