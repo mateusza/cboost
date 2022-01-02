@@ -1,3 +1,5 @@
+_If it looks stupid but works, it isn't stupid_
+
 # cboost
 
 Boost your **python** code by automatically converting it to **C/C++** on the fly.
