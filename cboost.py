@@ -191,7 +191,7 @@ class AnnAssign(stmt):
         return a
 
     def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
-        return curr_indent + render(self.annotation) + ' ' + render(self.target) + ' = ' + render(self.value, brackets=False) + ';' if semicolon else ''
+        return curr_indent + render(self.annotation) + ' ' + render(self.target) + ' = ' + render(self.value, brackets=False) + (';' if semicolon else '')
 
 
 class Assign(stmt):
@@ -216,7 +216,7 @@ class Assign(stmt):
         return a
 
     def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
-        return curr_indent + render(self.targets[0]) + ' = ' + render(self.value, brackets=False) + ';' if semicolon else ''
+        return curr_indent + render(self.targets[0]) + ' = ' + render(self.value, brackets=False) + (';' if semicolon else '')
 
 class Attribute(expr):
     """Attribute"""
@@ -250,7 +250,7 @@ class AugAssign(stmt):
         )
 
     def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
-        return curr_indent + render(self.target) + ' ' + render(self.op) + '= ' + render(self.value, brackets=False) + ';' if semicolon else ''
+        return curr_indent + render(self.target) + ' ' + render(self.op) + '= ' + render(self.value, brackets=False) + (';' if semicolon else '')
 
 class BinOp(expr):
     """
@@ -466,9 +466,12 @@ class For(stmt):
         self.iter = iter
 
     @classmethod
-    def _from_py(cls, fo: ast.While):
+    def _from_py(cls, fo: ast.For):
         if len(fo.orelse):
             raise Exception("For loops with strange 'else:' block are not supported yet")
+
+        if type(fo.iter) == ast.Call and fo.iter.func.id == 'range':
+            return ForCStyle._from_py(fo)
 
         return cls(
             target=convert(fo.target),
@@ -478,10 +481,65 @@ class For(stmt):
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
+            curr_indent + '/* This is probably not what you need: */',
             curr_indent + 'for (auto ' + render(self.target) + ': ' + render(self.iter) + '){',
             *[render(b, indent, next_indent) for b in self.body],
-            curr_indent + '}'
+            curr_indent + '}',
+            curr_indent + '/* Sorry */'
         ])
+
+class ForCStyle(stmt):
+    init: stmt
+    cond: expr
+    incr: stmt
+    body: list
+
+    def __init__(self, init=None, cond=None, incr=None, body=[]):
+        self.init = init
+        self.cond = cond
+        self.incr = incr
+        self.body = body
+
+    @classmethod
+    def _from_py(cls, fo: ast.For):
+        target = convert(fo.target)
+        r_args = fo.iter.args
+        match len(r_args):
+            case 1:
+                start, stop, step = Constant(value=0), convert(r_args[0]), Constant(value=1)
+            case 2:
+                start, stop, step = convert(r_args[0]), convert(r_args[1]), Constant(value=1)
+            case 3:
+                start, stop, step = convert_list(r_args)
+            case _:
+                raise Exception("Unknown range() syntax")
+
+        if type(step) == Constant and step.value == 1:
+            incr = IncrDecr(target=target, op=Add(), post=False)
+        else:
+            incr = AugAssign(target=target, op=Add(), value=step)
+
+        return cls(
+            init=AnnAssign(target=target, annotation=Name(id='auto'), value=start, simple=1),
+            cond=Compare(left=target, ops=[Lt()], comparators=[stop]),
+            incr=incr,
+            body=convert_list(fo.body)
+        )
+
+
+    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+        return '\n'.join([
+            curr_indent + '/* This is translated from something else: */',
+            curr_indent + 'for ('
+                + render(self.init, semicolon=False) + '; '
+                + render(self.cond, brackets=False) + '; '
+                + render(self.incr, semicolon=False, brackets=False) + '){',
+            *[render(b, indent, next_indent) for b in self.body],
+            curr_indent + '}',
+            curr_indent + '/* Hope it works */'
+        ])
+
+
 
 class FunctionDef(stmt):
     name: str
@@ -527,6 +585,26 @@ class FunctionDef(stmt):
 
 class Gt(cmpop):
     r: str = '>'
+
+class IncrDecr(expr):
+    target: expr
+    op: operator
+    post: bool
+
+    def __init__(self, target: expr = None, op: operator = None, post: bool = True):
+        self.target = target
+        self.op = op
+        self.post = post
+
+    def _render(self, brackets=True, **kwargs):
+        target = render(self.target)
+        op = render(self.op)*2
+        v = [target, op] if self.post else [op, target]
+        return (
+            ('(' if brackets else '')
+            + ''.join(v)
+            + (')' if brackets else '')
+        )
 
 class In(cmpop):
     """This shouldn't be used at all"""
@@ -717,8 +795,8 @@ def dump(obj: AST, indent: int = 0, __current_indent: int = 0) -> str:
     else:
         return repr(obj)
 
-def render(obj: AST, indent: int = 4, curr_indent: str = '', brackets: bool = True) -> str:
-    return obj._render(indent=indent, curr_indent=curr_indent, next_indent=curr_indent+indent*' ', brackets=brackets)
+def render(obj: AST, indent: int = 4, curr_indent: str = '', brackets: bool = True, semicolon: bool = True) -> str:
+    return obj._render(indent=indent, curr_indent=curr_indent, next_indent=curr_indent+indent*' ', brackets=brackets, semicolon=semicolon)
 
 def convert(py_ast_object: ast.AST) -> AST:
     """
