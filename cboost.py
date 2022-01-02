@@ -345,6 +345,22 @@ class Compare(expr):
     def _from_py(cls, cmpr: ast.Compare):
         if len(cmpr.comparators) > 1:
             raise Exception("Expressions with multiple comparisons are not supported yet")
+
+        # Special case: In()
+        if type(cmpr.ops[0]) == ast.In:
+            try:
+                elts: list = cmpr.comparators[0].elts
+                return BoolOp(
+                    op=Or(),
+                    values=[Compare(
+                        left=convert(cmpr.left),
+                        comparators=[convert(e)],
+                        ops=[Eq()]
+                    ) for e in elts]
+                )
+            except AttributeError:
+                raise Exception("Unable to rewrite 'in' comparison")
+
         return cls(**{
             'left': convert(cmpr.left),
             'ops': convert_list(cmpr.ops),
@@ -445,6 +461,9 @@ class FunctionDef(stmt):
 
 class Gt(cmpop):
     r: str = '>'
+
+class In(cmpop):
+    """This shouldn't be used at all"""
 
 class If(stmt):
     "cboost If"
@@ -677,6 +696,7 @@ __class_conversions: dict = {
     ast.FunctionDef:    FunctionDef,
     ast.Gt:         Gt,
     ast.If:         If,
+    ast.In:         In,
     ast.Lt:         Lt,
     ast.LtE:        LtE,
     ast.Mod:        Mod,
