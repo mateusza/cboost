@@ -9,16 +9,14 @@ def fibo_py(n: int) -> int:
         return n
     return fibo_py(n-2) + fibo_py(n-1)
 
-@cboost.make_c
+@cboost.make_cpp
 def fibo(n: int) -> int:
     if n in (0, 1):
         return n
     return fibo(n-2) + fibo(n-1)
 
-# optional, if not used, it will compile on first use
-cboost.compile_c()
+fibo(0)
 
-print()
 for i in range(10):
     print(f"{i = }")
     funcs = [fibo_py, fibo]
