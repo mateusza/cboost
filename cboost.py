@@ -8,9 +8,17 @@ import hashlib
 import ctypes
 import dataclasses
 
+_boosted_functions: dict = {}
+_boosted_py_src: str = ''
+_disabled = False
+
 ALL_FUNCTIONS = {}
 IS_COMPILED = False
 SO = None
+
+def disable():
+    global _disabled
+    _disabled = True
 
 class CppSource:
     includes: set
@@ -187,6 +195,9 @@ class AnnAssign(stmt):
         a = cls(target=target, annotation=annotation, value=value, simple=simple)
         return a
 
+    def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
+        return curr_indent + render(self.annotation) + ' ' + render(self.target) + ' = ' + render(self.value, brackets=False) + ';' if semicolon else ''
+
 
 class Assign(stmt):
     """
@@ -211,6 +222,13 @@ class Assign(stmt):
 
     def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
         return curr_indent + render(self.targets[0]) + ' = ' + render(self.value, brackets=False) + ';' if semicolon else ''
+
+class Attribute(expr):
+    """Attribute"""
+
+    @classmethod
+    def _from_py(cls, attr):
+        return cls()
 
 class BinOp(expr):
     """
@@ -493,7 +511,10 @@ class Module(mod):
 
     def _render(self, indent: int = 4, curr_indent: str = '', **kwargs):
         return '\n'.join([
-            f'// Module: {self} translated by cboost',
+            f'// Module translated by cboost',
+            'extern "C" {',
+            *[f._render_declaration() +';' for f in self.body if isinstance(f, FunctionDef)],
+            '}',
             *[render(b, indent, curr_indent) for b in self.body],
             f'// End of module'
         ])
@@ -651,6 +672,7 @@ __class_conversions: dict = {
     ast.And:        And,
     ast.AnnAssign:  AnnAssign,
     ast.Assign:     Assign,
+    ast.Attribute:  Attribute,
     ast.BinOp:      BinOp,
     ast.BoolOp:     BoolOp,
     ast.Call:       Call,
@@ -962,6 +984,69 @@ def make_c(func: object) -> object:
         return execute_c_func(name, args, kwargs)
 
     return new_func
+
+def make_cpp(func: object) -> object:
+    global _disabled
+    if _disabled:
+        return func
+
+    name = _make_cpp(func)
+
+    def cboost_wrapper(*args, **kwargs):
+        return call(name, args, kwargs)
+
+    return cboost_wrapper
+
+def find_function_name(py_src):
+    """FIXME"""
+    return ast.parse(py_src).body[0].name
+
+def _make_cpp(func: object) -> str:
+    global _boosted_py_src
+    python_src: str = inspect.getsource(func)
+    _boosted_py_src += python_src + '\n\n'
+    name = find_function_name(python_src)
+    _boosted_functions[name] = None
+    return name
+
+def call(name: str, args: list, kwargs: dict):
+    f = _boosted_functions[name]
+    if f == None:
+        _load_so()
+        f = _boosted_functions[name] # once again
+    return f(*args, **kwargs)
+
+def _cpp_id(cpp_src: str) -> str:
+    return hashlib.sha256(cpp_src.encode()).hexdigest()[0:24]
+
+def _load_so():
+    global _boosted_py_src
+    python_ast: ast.AST = ast.parse(_boosted_py_src)
+    cpp_ast: AST = convert(python_ast)
+    cpp_src: str = render(cpp_ast)
+
+    cpp_id = _cpp_id(cpp_src)
+
+    dirname = '__pycache__/__cboost__/'
+    os.makedirs(dirname, exist_ok=True)
+
+    fn_basename = f'{dirname}/{cpp_id}'
+    fn_so = f'{fn_basename}.so'
+
+    if not os.path.exists(fn_so):
+        fn_cpp = f'{fn_basename}.cpp'
+        with open(fn_cpp, 'w') as f:
+            f.write(cpp_src)
+        gcc_cmd = f'g++ -Wall -O3 -shared -o {fn_so} {fn_cpp}'
+        gcc_ret = os.system(gcc_cmd)
+        if gcc_ret != 0:
+            raise Exception('C++ compilation failed.')
+
+    so = ctypes.cdll.LoadLibrary(fn_so)
+
+    for name in _boosted_functions.keys():
+        _boosted_functions[name] = so[name]
+
 
 def execute_c_func(name: str, args, kwargs):
     global LIBNAME
