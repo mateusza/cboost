@@ -6,6 +6,8 @@ import dis
 import os
 import hashlib
 import ctypes
+import sys
+import functools
 
 _boosted_functions: dict = {}
 _boosted_py_src: str = ''
@@ -14,6 +16,16 @@ _disabled = False
 def disable():
     global _disabled
     _disabled = True
+
+@functools.cache
+def _is_disabled():
+    global _disabled
+    if _disabled:
+        return True
+    if os.getenv('CBOOST_DISABLE'):
+        sys.stderr.write('Warning: cboost disabled by CBOOST_DISABLE\n')
+        return True
+    return False
 
 class CppSource:
     includes: set
@@ -179,16 +191,19 @@ class AnnAssign(stmt):
         self.simple = simple
 
     @classmethod
-    def _from_py(cls, annassign: ast.AnnAssign):
+    def _from_py(cls, a: ast.AnnAssign):
         """
         convert
         """
-        target = convert(annassign.target)
-        value = convert(annassign.value)
-        annotation = convert(annassign.annotation)
-        simple = annassign.simple
-        a = cls(target=target, annotation=annotation, value=value, simple=simple)
-        return a
+        target = convert(a.target)
+        value = convert(a.value)
+        if type(a.annotation) == ast.Constant:
+            annotation = Name(id=str(a.annotation.value))
+        else:
+            annotation = convert(a.annotation)
+        simple = a.simple
+
+        return cls(target=target, annotation=annotation, value=value, simple=simple)
 
     def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
         return curr_indent + render(self.annotation) + ' ' + render(self.target) + ' = ' + render(self.value, brackets=False) + (';' if semicolon else '')
@@ -320,6 +335,17 @@ class BoolOp(expr):
             ')' if brackets else ''
         ])
 
+class Break(stmt):
+    def __init__(self):
+        ...
+
+    @classmethod
+    def _from_py(cls, b=None):
+        return cls()
+
+    def _render(self, curr_indent: str ='',  semicolon=True, **kwargs):
+        return f'{curr_indent}break' + (';' if semicolon else '')
+
 class Call(expr):
     """
     cboost Call
@@ -450,6 +476,18 @@ class Constant(expr):
                 # TODO: string class!!!
                 return '"'+x.replace('"', '\\"')+'"'
 
+class Continue(stmt):
+    def __init__(self):
+        ...
+
+    @classmethod
+    def _from_py(cls, c=None):
+        return cls()
+
+    def _render(self, curr_indent: str ='',  semicolon=True, **kwargs):
+        return f'{curr_indent}continue' + (';' if semicolon else '')
+
+
 class Eq(cmpop):
     r: str = '=='
 
@@ -481,11 +519,13 @@ class For(stmt):
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
+            '',
             curr_indent + '/* This is probably not what you need: */',
             curr_indent + 'for (auto ' + render(self.target) + ': ' + render(self.iter) + '){',
             *[render(b, indent, next_indent) for b in self.body],
             curr_indent + '}',
-            curr_indent + '/* Sorry */'
+            curr_indent + '/* Sorry for the inconvinience */',
+            ''
         ])
 
 class ForCStyle(stmt):
@@ -529,7 +569,7 @@ class ForCStyle(stmt):
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
-            curr_indent + '/* This is translated from something else: */',
+            curr_indent + '/* This is translated from something else (eg. range()): */',
             curr_indent + 'for ('
                 + render(self.init, semicolon=False) + '; '
                 + render(self.cond, brackets=False) + '; '
@@ -538,8 +578,6 @@ class ForCStyle(stmt):
             curr_indent + '}',
             curr_indent + '/* Hope it works */'
         ])
-
-
 
 class FunctionDef(stmt):
     name: str
@@ -607,7 +645,9 @@ class IncrDecr(expr):
         )
 
 class In(cmpop):
-    """This shouldn't be used at all"""
+    """This shouldn't be used at all as C++ doesn't have direct syntactical equivalent"""
+    def __init__(self):
+        raise Exception('Use of In() is impossible')
 
 class If(stmt):
     "cboost If"
@@ -837,9 +877,11 @@ __class_conversions: dict = {
     ast.BitOr:      BitOr,
     ast.BitXor:     BitXor,
     ast.BoolOp:     BoolOp,
+    ast.Break:      Break,
     ast.Call:       Call,
     ast.Compare:    Compare,
     ast.Constant:   Constant,
+    ast.Continue:   Continue,
     ast.Eq:         Eq,
     ast.For:        For,
     ast.FunctionDef:    FunctionDef,
@@ -866,8 +908,7 @@ __type_conversions: dict = {
 }
 
 def make_cpp(func: object) -> object:
-    global _disabled
-    if _disabled:
+    if _is_disabled():
         return func
 
     name = _make_cpp(func)
@@ -907,7 +948,7 @@ def _load_so():
 
     cpp_id = _cpp_id(cpp_src)
 
-    dirname = '__pycache__/__cboost__/'
+    dirname = '__pycache__/__cboost__'
     os.makedirs(dirname, exist_ok=True)
 
     fn_basename = f'{dirname}/{cpp_id}'
@@ -915,12 +956,16 @@ def _load_so():
 
     if not os.path.exists(fn_so):
         fn_cpp = f'{fn_basename}.cpp'
+        fn_errors = f'{fn_basename}.log'
+
         with open(fn_cpp, 'w') as f:
             f.write(cpp_src)
-        gcc_cmd = f'g++ -Wall -O3 -shared -o {fn_so} {fn_cpp}'
+        # TODO: compiler, options, flags, etc
+        gcc_cmd = f'g++ -Wall -O2 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
         gcc_ret = os.system(gcc_cmd)
         if gcc_ret != 0:
-            raise Exception('C++ compilation failed.')
+            raise Exception(f'C++ compilation failed. See {fn_errors} for details.')
+        os.unlink(fn_errors)
 
     so = ctypes.cdll.LoadLibrary(fn_so)
 
