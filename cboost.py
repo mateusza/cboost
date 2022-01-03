@@ -14,6 +14,14 @@ _boosted_py_src: str = ''
 _disabled = False
 _cache = True
 
+_cpp_functions = """
+/* simple re-implementation of python functions */
+template<typename T> bool all(T elts){ for (auto e: elts) if(!e) return false; return true; }
+template<typename T> bool any(T elts){ for (auto e: elts) if(e) return true; return false; }
+template<typename T> T sum(std::vector<T> elts){ T s{0}; for (auto e: elts) s += e; return s; }
+
+"""
+
 def disable():
     global _disabled
     _disabled = True
@@ -27,17 +35,6 @@ def _is_disabled():
         sys.stderr.write('Warning: cboost disabled by CBOOST_DISABLE\n')
         return True
     return False
-
-class CppSource:
-    includes: set
-    declarations: list
-    definitions: list
-
-    def __str__(self):
-        includes = [f'#include <{inc}>' for inc in self.includes]
-        declarations = [f'{dec};' for dec in self.decarations]
-        definitions = [f'{def_}\n' for def_ in self.definitions]
-        return '\n'.join([*includes, *declarations, *definitions])
 
 class AST:
     """
@@ -197,12 +194,13 @@ class AnnAssign(stmt):
         convert
         """
         target = convert(a.target)
+        simple = a.simple
+
         value = convert(a.value)
         if type(a.annotation) == ast.Constant:
             annotation = Name(id=str(a.annotation.value))
         else:
             annotation = convert(a.annotation)
-        simple = a.simple
 
         return cls(target=target, annotation=annotation, value=value, simple=simple)
 
@@ -682,6 +680,42 @@ class If(stmt):
             ] if len(self.orelse) else [])
         ])
 
+class IfExp(expr):
+    test: expr
+    body: expr
+    orelse: expr
+
+    def __init__(self, test: expr = None, body: expr = None, orelse: expr = None):
+        self.test = test
+        self.body = body
+        self.orelse = orelse
+
+    @classmethod
+    def _from_py(cls, ife: ast.IfExp):
+        test = convert(ife.test)
+        body = convert(ife.body)
+        orelse = convert(ife.orelse)
+        return cls(test=test, body=body, orelse=orelse)
+
+    def _render(self, brackets=True, **kwargs):
+        return (
+            ('(' if brackets else '') 
+            + render(self.test) + ' ? ' + render(self.body) + ' : ' + render(self.orelse)
+            + (')' if brackets else '')
+        )
+
+class List(expr):
+    elts: list
+
+    def _render(self):
+        raise Exception("Lists cannot be rendered directly.")
+
+    @classmethod
+    def _from_py(cls, the_list: ast.List):
+        if len(the_list.elts) == 0:
+            raise Exception("Empty list literals are not supported as we cannot deduce the type")
+        return Std_Vector._from_py_list(the_list)
+
 class Lt(cmpop):
     r = '<'
 
@@ -696,6 +730,9 @@ class Module(mod):
     cboost AST Module
     """
     body: list
+    includes: list = [
+        'vector'
+    ]
     def __init__(self, body: list=[]):
         self.body = body
 
@@ -711,6 +748,8 @@ class Module(mod):
     def _render(self, indent: int = 4, curr_indent: str = '', **kwargs):
         return '\n'.join([
             f'// Module translated by cboost',
+            *[f'#include <{i}>' for i in self.includes],
+            _cpp_functions,
             'extern "C" {',
             *[f._render_declaration() +';' for f in self.body if isinstance(f, FunctionDef)],
             '}',
@@ -746,6 +785,9 @@ class Name(expr):
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return self.id
 
+class NotEq(cmpop):
+    r: str = '!='
+
 class Or(boolop):
     r: str = '||'
 
@@ -764,11 +806,44 @@ class Return(stmt):
     def _render(self, curr_indent: str = '', **kwargs):
         return curr_indent + 'return ' + render(self.value, brackets=False) + ';'
 
+class Std_Vector(expr):
+    elts: list
+    cpp_type = 'std::vector'
+
+    def __init__(self, elts: list):
+        self.elts = elts
+
+    @classmethod
+    def _from_py_list(cls, the_list):
+        elts = convert_list(the_list.elts)
+        return cls(elts=elts)
+
+    def _render(self, **kwargs):
+        first_elt = render(self.elts[0])
+        return self.cpp_type + '<decltype(' + first_elt + ')>' + '{' + ', '.join(render(e) for e in self.elts) + '}'
+
 class Sub(operator):
     """
     cboost Sub
     """
     r: str = '-'
+
+class Subscript(expr):
+    value: expr
+    slice: expr
+
+    def __init__(self, value: expr, slice: expr):
+        self.value = value
+        self.slice = slice
+
+    @classmethod
+    def _from_py(cls, ss):
+        value = convert(ss.value)
+        slice = convert(ss.slice)
+        return cls(value=value, slice=slice)
+
+    def _render(self, brackets=True, **kwargs):
+        return ('(' if brackets else '') + render(self.value) + '[' + render(self.slice) + ']' + (')' if brackets else '')
 
 class While(stmt):
     """
@@ -888,16 +963,20 @@ __class_conversions: dict = {
     ast.FunctionDef:    FunctionDef,
     ast.Gt:         Gt,
     ast.If:         If,
+    ast.IfExp:      IfExp,
     ast.In:         In,
+    ast.List:       List,
     ast.Lt:         Lt,
     ast.LtE:        LtE,
     ast.Mod:        Mod,
     ast.Module:     Module,
     ast.Mult:       Mult,
+    ast.NotEq:      NotEq,
     ast.Name:       Name,
     ast.Or:         Or,
     ast.Return:     Return,
     ast.Sub:        Sub,
+    ast.Subscript:  Subscript,
     ast.While:      While,
 }
 
@@ -906,6 +985,7 @@ __type_conversions: dict = {
     'int':          'long',
     'float':        'double',
     'str':          'string',
+    'list':         'auto', # FIXME
 }
 
 def make_cpp(func: object) -> object:
