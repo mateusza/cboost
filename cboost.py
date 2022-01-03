@@ -15,11 +15,11 @@ _disabled = False
 _cache = True
 
 _cpp_functions = """
-/* simple re-implementation of python functions */
+/* simple re-implementation of some python builtin functions */
 template<typename T> bool all(T elts){ for (auto e: elts) if(!e) return false; return true; }
 template<typename T> bool any(T elts){ for (auto e: elts) if(e) return true; return false; }
 template<typename T> T sum(std::vector<T> elts){ T s{0}; for (auto e: elts) s += e; return s; }
-
+template<typename T> void print(T v){ std::cout << v << std::endl; }
 """
 
 def disable():
@@ -490,6 +490,26 @@ class Continue(stmt):
 class Eq(cmpop):
     r: str = '=='
 
+class Expr(stmt):
+    """
+    cboost Expr
+    """
+    value = None
+    def __init__(self, value=None):
+        self.value = value
+
+    @classmethod
+    def _from_py(cls, e: ast.Expr):
+        """
+        Convert Python AST Expr
+        """
+        value = convert(e.value)
+        a = cls(value=value)
+        return a
+
+    def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
+        return curr_indent + render(self.value, brackets=False) + (';' if semicolon else '')
+
 class For(stmt):
     """
     cboost AST For
@@ -731,7 +751,8 @@ class Module(mod):
     """
     body: list
     includes: list = [
-        'vector'
+        'vector',
+        'iostream'
     ]
     def __init__(self, body: list=[]):
         self.body = body
@@ -959,6 +980,7 @@ __class_conversions: dict = {
     ast.Constant:   Constant,
     ast.Continue:   Continue,
     ast.Eq:         Eq,
+    ast.Expr:       Expr,
     ast.For:        For,
     ast.FunctionDef:    FunctionDef,
     ast.Gt:         Gt,
@@ -1061,7 +1083,7 @@ def _load_so():
             f.write(cpp_id)
 
         # TODO: compiler, options, flags, etc
-        gcc_cmd = f'g++ -Wall -O2 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
+        gcc_cmd = f'g++ -fPIC -Wall -O2 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
         gcc_ret = os.system(gcc_cmd)
         if gcc_ret != 0:
             raise Exception(f'C++ compilation failed. See {fn_errors} for details.')
