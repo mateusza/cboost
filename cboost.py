@@ -812,6 +812,26 @@ class IfExp(expr):
             + (')' if brackets else '')
         )
 
+class JoinedStr(expr):
+    values: list
+
+    def __init__(self, values: list = []):
+        self.values = values
+    
+    def _render(self, brackets: bool = True, **kwargs):
+        return ' + '.join([render(v) for v in self.values])
+
+    @classmethod
+    def _from_py(cls, js: ast.JoinedStr()):
+        values = []
+        for v in js.values:
+            if type(v) == ast.FormattedValue:
+                v = convert(v.value)
+            else:
+                v = convert(v)
+            values.append(Call(func=Name(id='str'), args=[v]))
+        return cls(values=values)
+
 class List(expr):
     elts: list
 
@@ -1104,6 +1124,7 @@ __class_conversions: dict = {
     ast.If:         If,
     ast.IfExp:      IfExp,
     ast.In:         In,
+    ast.JoinedStr:  JoinedStr,
     ast.List:       List,
     ast.Lt:         Lt,
     ast.LtE:        LtE,

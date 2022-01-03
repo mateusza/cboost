@@ -16,6 +16,7 @@ def echo(n: int) -> int:
     print(10 * "kot")
     print('"pies" * 10')
     print("pies" * 10)
+    print(f'liczba: {123} napis: {napis}')
     return len(napis)
 
 if __name__ == '__main__':
