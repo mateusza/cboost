@@ -23,11 +23,14 @@ template<typename T> void print(T v){std::cout << v << std::endl;}
 template<typename T> std::string str(const T n){return std::to_string(n);}
 template <> std::string str(const std::string s){return s;}
 template <> std::string str(const char *s){return std::string{s};}
-template <typename T> std::string str(std::vector<T> vec){
+template <typename VT> std::string str(std::vector<VT> vec){
     std::string r; bool c{0};
     for(auto e: vec){if(c)r+=", "; r+=str(e);}
     return "["+r+"]";
 }
+template <typename T> unsigned long len(const T c){throw std::runtime_error("len() not supported");}
+template <> unsigned long len(const std::string s){return s.length();}
+template <typename VT> unsigned long len(const std::vector<VT> v){return v.size();}
 """
 
 def disable():
@@ -760,7 +763,8 @@ class Module(mod):
     body: list
     includes: list = [
         'vector',
-        'iostream'
+        'iostream',
+        'stdexcept'
     ]
     def __init__(self, body: list=[]):
         self.body = body
