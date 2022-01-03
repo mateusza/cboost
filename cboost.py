@@ -16,10 +16,21 @@ _cache = True
 
 _cpp_functions = """
 /* simple re-implementation of some python builtin functions */
-template<typename T> bool all(T elts){ for (auto e: elts) if(!e) return false; return true; }
-template<typename T> bool any(T elts){ for (auto e: elts) if(e) return true; return false; }
-template<typename T> T sum(std::vector<T> elts){ T s{0}; for (auto e: elts) s += e; return s; }
-template<typename T> void print(T v){ std::cout << v << std::endl; }
+template<typename T> bool all(T elts){for(auto e: elts) if(!e) return false; return true;}
+template<typename T> bool any(T elts){for(auto e: elts) if(e) return true; return false;}
+template<typename T> T sum(std::vector<T> elts){T s{0}; for(auto e: elts) s += e; return s;}
+template<typename T> void print(T v){std::cout << v << std::endl;}
+template<typename T> std::string str(const T n){return std::to_string(n);}
+template <> std::string str(const std::string s){return s;}
+template <> std::string str(const char *s){return std::string{s};}
+template <typename VT> std::string str(std::vector<VT> vec){
+    std::string r; bool c{0};
+    for(auto e: vec){if(c)r+=", "; r+=str(e);}
+    return "["+r+"]";
+}
+template <typename T> unsigned long len(const T c){throw std::runtime_error("len() not supported");}
+template <> unsigned long len(const std::string s){return s.length();}
+template <typename VT> unsigned long len(const std::vector<VT> v){return v.size();}
 """
 
 def disable():
@@ -200,7 +211,7 @@ class AnnAssign(stmt):
         if type(a.annotation) == ast.Constant:
             annotation = Name(id=str(a.annotation.value))
         else:
-            annotation = convert(a.annotation)
+            annotation = Name(id=convert_type(a.annotation.id))
 
         return cls(target=target, annotation=annotation, value=value, simple=simple)
 
@@ -752,7 +763,8 @@ class Module(mod):
     body: list
     includes: list = [
         'vector',
-        'iostream'
+        'iostream',
+        'stdexcept'
     ]
     def __init__(self, body: list=[]):
         self.body = body
@@ -1006,7 +1018,7 @@ __type_conversions: dict = {
     'bool':         'int',
     'int':          'long',
     'float':        'double',
-    'str':          'string',
+    'str':          'std::string',
     'list':         'auto', # FIXME
 }
 
