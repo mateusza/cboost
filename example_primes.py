@@ -1,5 +1,11 @@
 #!/usr/bin/env python3.10
 
+"""
+Calculate number of primes less then given value (π(x))
+
+https://en.wikipedia.org/wiki/Prime-counting_function
+"""
+
 import cboost
 
 @cboost.make_cpp

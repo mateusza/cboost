@@ -1,5 +1,15 @@
 #!/usr/bin/env python3.10
 
+"""
+Recursively calculate n-th term of Fibonacci sequence
+
+    f(0) = 0
+    f(1) = 1
+    f(n) = f(n-1) + f(n-2)
+
+https://en.wikipedia.org/wiki/Fibonacci_number
+"""
+
 import cboost
 
 @cboost.make_cpp
