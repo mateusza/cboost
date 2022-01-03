@@ -23,18 +23,18 @@ _cpp_functions = """
 /* simple re-implementation of some python builtin methods */
 
 namespace py {
-template<typename T> std::string join(std::string g, T elts);
+template<typename T> std::string join(const std::string g, const T elts);
 }
 
 /* simple re-implementation of some python builtin functions */
 template<typename T>
-bool all(T elts){for(auto e: elts) if(!e) return false; return true;}
+bool all(const T elts){for(auto e: elts) if(!e) return false; return true;}
 
 template<typename T>
-bool any(T elts){for(auto e: elts) if(e) return true; return false;}
+bool any(const T elts){for(auto e: elts) if(e) return true; return false;}
 
 template<typename T>
-T sum(std::vector<T> elts){T s{0}; for(auto e: elts) s += e; return s;}
+T sum(const std::vector<T> elts){T s{0}; for(auto e: elts) s += e; return s;}
 
 template<typename T>
 std::string str(const T n){return std::to_string(n);}
@@ -55,7 +55,7 @@ template<typename VT>
 std::string str(std::vector<VT> vec){return "["+py::join(", ", vec)+"]";}
 
 template<typename T>
-void print(T v){std::cout << str(v) << std::endl;}
+void print(const T v){std::cout << str(v) << std::endl;}
 
 template<typename T>
 unsigned long len(const T c){throw std::runtime_error("len() not supported");}
@@ -74,8 +74,7 @@ std::string operator * (const T& lhs, const std::string rhs){
 
 template <typename T>
 std::string operator * (const std::string lhs, const T& rhs){
-    std::stringstream r;
-    for(auto i=0; i<rhs; ++i) r<<lhs; return r.str();
+    return rhs * lhs;
 }
 
 template <typename T>
@@ -85,7 +84,7 @@ T abs(T n){return (n<0)?(-n):(n);}
 namespace py {
 
 template<typename T>
-std::string join(std::string g, T elts){
+std::string join(const std::string g, const T elts){
     std::stringstream r; bool c{0};
     for (auto e: elts){if(c)r<<g;r<<str(e);c=1;} return r.str();
 }
@@ -714,7 +713,8 @@ class FunctionDef(stmt):
         try:
             return_type = convert_type(self.returns.id)
         except AttributeError:
-            raise Exception('Functions without return type annotations are not supported')
+            return_type = 'void'
+#            raise Exception('Functions without return type annotations are not supported')
         return return_type + ' ' + self.name + '(' + render(self.args) + ')'
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
@@ -1209,7 +1209,7 @@ def _load_so():
             f.write(cpp_id)
 
         # TODO: compiler, options, flags, etc
-        gcc_cmd = f'g++ -fPIC -Wall -O2 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
+        gcc_cmd = f'g++ -fPIC -Werror -O2 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
         gcc_ret = os.system(gcc_cmd)
         if gcc_ret != 0:
             os.unlink(fn_py_hash)
