@@ -12,8 +12,8 @@ def echo() -> int:
     napis2: str = ";".join(litery)
 
     miesiace: list = ["styczen", "luty", "marzec"]
-    print(napis2)
-    print(", ".join(miesiace))
+    print("litery: " + napis2)
+    print("miesiace: " + ", ".join(miesiace))
     return 0
 
 if __name__ == '__main__':
@@ -25,5 +25,3 @@ if __name__ == '__main__':
         sys.exit(1)
 
     print(f'{echo() = }')
-
-cboost.
