@@ -552,8 +552,7 @@ class Constant(expr):
             value = int(value)
         if value == None:
             value = 0
-        c = cls(value=value)
-        return c
+        return cls(value=value)
 
     def _render(self, **kwargs):
         match self.value:
@@ -591,8 +590,7 @@ class Expr(stmt):
         Convert Python AST Expr
         """
         value = convert(e.value)
-        a = cls(value=value)
-        return a
+        return cls(value=value)
 
     def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
         return curr_indent + render(self.value, brackets=False) + (';' if semicolon else '')
@@ -617,11 +615,11 @@ class For(stmt):
         if type(fo.iter) == ast.Call and fo.iter.func.id == 'range':
             return ForCStyle._from_py(fo)
 
-        return cls(
-            target=convert(fo.target),
-            iter=convert(fo.iter),
-            body=convert_list(fo.body)
-        )
+        target = convert(fo.target)
+        iter = convert(fo.iter)
+        body = convert_list(fo.body)
+
+        return cls(target=target, iter=iter, body=body)
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
@@ -665,13 +663,10 @@ class ForCStyle(stmt):
         else:
             incr = AugAssign(target=target, op=Add(), value=step)
 
-        return cls(
-            init=AnnAssign(target=target, annotation=Name(id='auto'), value=start, simple=1),
-            cond=Compare(left=target, ops=[Lt()], comparators=[stop]),
-            incr=incr,
-            body=convert_list(fo.body)
-        )
-
+        init = AnnAssign(target=target, annotation=Name(id='auto'), value=start, simple=1)
+        cond = Compare(left=target, ops=[Lt()], comparators=[stop])
+        body = convert_list(fo.body)
+        return cls(init=init, cond=cond, incr=incr, body=body)
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
@@ -845,10 +840,10 @@ class List(expr):
         return Std_Vector._from_py_list(the_list)
 
 class Lt(cmpop):
-    r = '<'
+    r: str = '<'
 
 class LtE(cmpop):
-    r = '<='
+    r: str = '<='
 
 class Mod(operator):
     r: str = '%'
@@ -868,8 +863,7 @@ class Module(mod):
         Convert Python AST Module
         """
         body = convert_list(module.body)
-        m = cls(body=body)
-        return m
+        return cls(body=body)
 
     def _render(self, indent: int = 4, curr_indent: str = '', **kwargs):
         return '\n'.join([
@@ -904,8 +898,7 @@ class Name(expr):
         convert Python AST Name
         """
         id = name.id
-        n = cls(id=id)
-        return n
+        return cls(id=id)
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return self.id
@@ -924,9 +917,8 @@ class Return(stmt):
 
     @classmethod
     def _from_py(cls, r: ast.Return):
-        return cls(**{
-            'value': convert(r.value)
-        })
+        value = convert(r.value)
+        return cls(value=value)
 
     def _render(self, curr_indent: str = '', **kwargs):
         return curr_indent + 'return ' + render(self.value, brackets=False) + ';'
@@ -1017,10 +1009,9 @@ class While(stmt):
     def _from_py(cls, wh: ast.While):
         if len(wh.orelse):
             raise Exception("While loops with strange 'else:' block are not supported yet")
-        return cls(**{
-            'test': convert(wh.test),
-            'body': convert_list(wh.body)
-        })
+        test = convert(wh.test)
+        body = convert_list(wh.body)
+        return cls(test=test, body=body)
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
