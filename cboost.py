@@ -12,6 +12,7 @@ import functools
 _boosted_functions: dict = {}
 _boosted_py_src: str = ''
 _disabled = False
+_cache = True
 
 def disable():
     global _disabled
@@ -937,18 +938,33 @@ def call(name: str, args: list, kwargs: dict):
         f = _boosted_functions[name] # once again
     return f(*args, **kwargs)
 
-def _cpp_id(cpp_src: str) -> str:
+def _src_id(cpp_src: str) -> str:
     return hashlib.sha256(cpp_src.encode()).hexdigest()[0:24]
 
 def _load_so():
     global _boosted_py_src
-    python_ast: ast.AST = ast.parse(_boosted_py_src)
-    cpp_ast: AST = convert(python_ast)
-    cpp_src: str = render(cpp_ast)
-
-    cpp_id = _cpp_id(cpp_src)
+    global _no_cache
 
     dirname = '__pycache__/__cboost__'
+
+    py_id = _src_id(_boosted_py_src)
+    fn_py_hash = f'{dirname}/{py_id}.txt'
+
+    cpp_id: str = None
+
+    if _cache:
+        try:
+            with open(fn_py_hash) as f:
+                cpp_id = f.read().strip()
+        except FileNotFoundError:
+            ...
+
+    if cpp_id == None:
+        python_ast: ast.AST = ast.parse(_boosted_py_src)
+        cpp_ast: AST = convert(python_ast)
+        cpp_src = render(cpp_ast)
+        cpp_id = _src_id(cpp_src)
+
     os.makedirs(dirname, exist_ok=True)
 
     fn_basename = f'{dirname}/{cpp_id}'
@@ -960,6 +976,10 @@ def _load_so():
 
         with open(fn_cpp, 'w') as f:
             f.write(cpp_src)
+
+        with open(fn_py_hash, 'w') as f:
+            f.write(cpp_id)
+
         # TODO: compiler, options, flags, etc
         gcc_cmd = f'g++ -Wall -O2 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
         gcc_ret = os.system(gcc_cmd)
