@@ -8,23 +8,26 @@ Everything is buggy. You are lucky if it worked with your code.
 - `if` condition
 - `while` loop
 - `for` loop only when iterating over `range()` in incrementing order
-- `int`/`long` as return and argument type only
+- `int` (`long`) as return and argument type only
+- types:
+    - `str` (`std::string`)
+    - `list` (`std::vector`)
+- functions:
+    - `len()`
+    - `any()`, `all()`
+    - `sum()`
 - some arithmetic and boolean operators
 - only variables with explicitly given types (`a: int = 7`)
 
 ## Todo:
 - argument type mapping and support
-- `array`/`list` support
-- `string` support
+- better `array`/`list` support
 - pythonic loop control `else:`
 - missing arithmetic, bitwise, logical operators
 - python functions like:
  - `min()`
  - `max()`
  - `abs()`
- - `sum()`
- - `all()`
- - `any()`
 - python list expressions `[x for x in ...]`
 - classes and methods
 - ability to select compiler, flags etc
