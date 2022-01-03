@@ -15,22 +15,83 @@ _disabled = False
 _cache = True
 
 _cpp_functions = """
-/* simple re-implementation of some python builtin functions */
-template<typename T> bool all(T elts){for(auto e: elts) if(!e) return false; return true;}
-template<typename T> bool any(T elts){for(auto e: elts) if(e) return true; return false;}
-template<typename T> T sum(std::vector<T> elts){T s{0}; for(auto e: elts) s += e; return s;}
-template<typename T> void print(T v){std::cout << v << std::endl;}
-template<typename T> std::string str(const T n){return std::to_string(n);}
-template <> std::string str(const std::string s){return s;}
-template <> std::string str(const char *s){return std::string{s};}
-template <typename VT> std::string str(std::vector<VT> vec){
-    std::string r; bool c{0};
-    for(auto e: vec){if(c)r+=", "; r+=str(e);}
-    return "["+r+"]";
+#include <iostream>
+#include <vector>
+#include <stdexcept>
+#include <sstream>
+
+/* simple re-implementation of some python builtin methods */
+
+namespace py {
+template<typename T> std::string join(std::string g, T elts);
 }
-template <typename T> unsigned long len(const T c){throw std::runtime_error("len() not supported");}
-template <> unsigned long len(const std::string s){return s.length();}
-template <typename VT> unsigned long len(const std::vector<VT> v){return v.size();}
+
+/* simple re-implementation of some python builtin functions */
+template<typename T>
+bool all(T elts){for(auto e: elts) if(!e) return false; return true;}
+
+template<typename T>
+bool any(T elts){for(auto e: elts) if(e) return true; return false;}
+
+template<typename T>
+T sum(std::vector<T> elts){T s{0}; for(auto e: elts) s += e; return s;}
+
+template<typename T>
+std::string str(const T n){return std::to_string(n);}
+
+template<>
+std::string str(const std::string s){return s;}
+
+template<>
+std::string str(const char *s){return std::string{s};}
+
+template<>
+std::string str(const char s){return std::string{s};}
+
+template<>
+std::string str(const bool b){return b?"True":"False";}
+
+template<typename VT>
+std::string str(std::vector<VT> vec){return "["+py::join(", ", vec)+"]";}
+
+template<typename T>
+void print(T v){std::cout << str(v) << std::endl;}
+
+template<typename T>
+unsigned long len(const T c){throw std::runtime_error("len() not supported");}
+
+template<>
+unsigned long len(const std::string s){return s.length();}
+
+template<typename VT>
+unsigned long len(const std::vector<VT> v){return v.size();}
+
+template<typename T>
+std::string operator * (const T& lhs, const std::string rhs){
+    std::stringstream r;
+    for(auto i=0; i<lhs; ++i) r<<rhs; return r.str();
+}
+
+template <typename T>
+std::string operator * (const std::string lhs, const T& rhs){
+    std::stringstream r;
+    for(auto i=0; i<rhs; ++i) r<<lhs; return r.str();
+}
+
+template <typename T>
+T abs(T n){return (n<0)?(-n):(n);}
+
+/* simple re-implementation of some python builtin types' methods */
+namespace py {
+
+template<typename T>
+std::string join(std::string g, T elts){
+    std::stringstream r; bool c{0};
+    for (auto e: elts){if(c)r<<g;r<<str(e);c=1;} return r.str();
+}
+
+}
+
 """
 
 def disable():
@@ -46,6 +107,16 @@ def _is_disabled():
         sys.stderr.write('Warning: cboost disabled by CBOOST_DISABLE\n')
         return True
     return False
+
+@functools.cache
+def _use_cache():
+    global _cache
+    if _cache == False:
+        return False
+    if os.getenv('CBOOST_NOCACHE'):
+        sys.stderr.write('Warning: cboost cache disabled by CBOOST_NOCACHE\n')
+        return False
+    return True
 
 class AST:
     """
@@ -362,7 +433,7 @@ class Call(expr):
     """
     func: expr
     args: list
-    keywords: list # WTF?
+    keywords: list # named args :-)
 
     def __init__(self, func: expr = None, args: list = [], keywords: list = []):
         self.func = func
@@ -371,19 +442,26 @@ class Call(expr):
 
     @classmethod
     def _from_py(cls, call: ast.Call):
-        return cls(**{
-            'func': convert(call.func),
-            'args': convert_list(call.args),
-            'keywords': convert_list(call.keywords)
-        })
+        if len(call.keywords) != 0:
+            raise Exception("Named arguments are not supported in C++")
+
+        if type(call.func) == ast.Name: # qwe()
+            func = convert(call.func)
+            args = convert_list(call.args)
+        elif type(call.func) == ast.Attribute: # something.join()
+            func = Name(id='py::'+call.func.attr)
+            args = [convert(call.func.value), *convert_list(call.args)]
+        else:
+            raise Exception("Unknown call: "+ast.dump(call))
+        return cls(func=func, args=args)
 
     def _render(self, **kwargs):
-        return ''.join([
-            render(self.func),
-            '(',
-            ', '.join([render(a, brackets=False) for a in self.args]),
-            ')'
-        ])
+        return (
+            render(self.func)
+            + '('
+            + ', '.join([render(a, brackets=False) for a in self.args])
+            + ')'
+        )
 
 class Compare(expr):
     """
@@ -483,8 +561,7 @@ class Constant(expr):
             case int(x)|float(x):
                 return str(x)
             case str(x):
-                # TODO: string class!!!
-                return '"'+x.replace('"', '\\"')+'"'
+                return 'std::string{' + '"'+x.replace('"', '\\"')+'"' + '}'
 
 class Continue(stmt):
     def __init__(self):
@@ -761,11 +838,7 @@ class Module(mod):
     cboost AST Module
     """
     body: list
-    includes: list = [
-        'vector',
-        'iostream',
-        'stdexcept'
-    ]
+
     def __init__(self, body: list=[]):
         self.body = body
 
@@ -781,7 +854,6 @@ class Module(mod):
     def _render(self, indent: int = 4, curr_indent: str = '', **kwargs):
         return '\n'.join([
             f'// Module translated by cboost',
-            *[f'#include <{i}>' for i in self.includes],
             _cpp_functions,
             'extern "C" {',
             *[f._render_declaration() +';' for f in self.body if isinstance(f, FunctionDef)],
@@ -857,7 +929,7 @@ class Std_Vector(expr):
 
 class Sub(operator):
     """
-    cboost Sub
+    cboost sub
     """
     r: str = '-'
 
@@ -877,6 +949,39 @@ class Subscript(expr):
 
     def _render(self, brackets=True, **kwargs):
         return ('(' if brackets else '') + render(self.value) + '[' + render(self.slice) + ']' + (')' if brackets else '')
+
+class UnaryOp(expr):
+    """
+    cboost BinOp
+    """
+    operand: expr
+    op: expr
+
+    def __init__(self, operand: expr = None, op: expr = None):
+        self.op = op
+        self.operand = operand
+
+    @classmethod
+    def _from_py(cls, uo: ast.UnaryOp):
+        return cls(
+            op = convert(uo.op),
+            operand = convert(uo.operand)
+        )
+
+    def _render(self, brackets: bool = True, **kwargs):
+        return (
+            ('(' if brackets else '')
+            + render(self.op)
+            + ' '
+            + render(self.operand)
+            + (')' if brackets else '')
+        )
+
+class USub(operator):
+    """
+    cboost sub
+    """
+    r: str = '-'
 
 class While(stmt):
     """
@@ -1011,6 +1116,8 @@ __class_conversions: dict = {
     ast.Return:     Return,
     ast.Sub:        Sub,
     ast.Subscript:  Subscript,
+    ast.UnaryOp:    UnaryOp,
+    ast.USub:       USub,
     ast.While:      While,
 }
 
@@ -1038,6 +1145,9 @@ def find_function_name(py_src):
     return ast.parse(py_src).body[0].name
 
 def _make_cpp(func: object) -> str:
+    """
+    Convert function code to C++, compile it to shared library and replace with library call.
+    """
     global _boosted_py_src
     python_src: str = inspect.getsource(func)
     _boosted_py_src += python_src + '\n\n'
@@ -1052,12 +1162,12 @@ def call(name: str, args: list, kwargs: dict):
         f = _boosted_functions[name] # once again
     return f(*args, **kwargs)
 
-def _src_id(cpp_src: str) -> str:
-    return hashlib.sha256(cpp_src.encode()).hexdigest()[0:24]
+def _src_id(src: str) -> str:
+    return hashlib.sha256(src.encode()).hexdigest()[0:24]
 
 def _load_so():
     global _boosted_py_src
-    global _no_cache
+    global _cache
 
     dirname = '__pycache__/__cboost__'
 
@@ -1066,7 +1176,7 @@ def _load_so():
 
     cpp_id: str = None
 
-    if _cache:
+    if _use_cache():
         try:
             with open(fn_py_hash) as f:
                 cpp_id = f.read().strip()
@@ -1084,7 +1194,11 @@ def _load_so():
     fn_basename = f'{dirname}/{cpp_id}'
     fn_so = f'{fn_basename}.so'
 
-    if not os.path.exists(fn_so):
+    try:
+        if _use_cache() == False:
+            raise OSError
+        so = ctypes.cdll.LoadLibrary(fn_so)
+    except OSError as e:
         fn_cpp = f'{fn_basename}.cpp'
         fn_errors = f'{fn_basename}.log'
 
@@ -1098,10 +1212,10 @@ def _load_so():
         gcc_cmd = f'g++ -fPIC -Wall -O2 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
         gcc_ret = os.system(gcc_cmd)
         if gcc_ret != 0:
-            raise Exception(f'C++ compilation failed. See {fn_errors} for details.')
+            os.unlink(fn_py_hash)
+            raise Exception(f'C++ compilation failed. See {fn_errors} for details and {fn_cpp} for generated C++ code.')
         os.unlink(fn_errors)
-
-    so = ctypes.cdll.LoadLibrary(fn_so)
+        so = ctypes.cdll.LoadLibrary(fn_so)
 
     for name in _boosted_functions.keys():
         _boosted_functions[name] = so[name]
