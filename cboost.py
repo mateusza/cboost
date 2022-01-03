@@ -24,6 +24,7 @@ _cpp_functions = """
 
 namespace py {
 template<typename T> std::string join(const std::string g, const T elts);
+std::vector<std::string> split(std::string st, const std::string sp);
 }
 
 /* simple re-implementation of some python builtin functions */
@@ -87,6 +88,17 @@ template<typename T>
 std::string join(const std::string g, const T elts){
     std::stringstream r; bool c{0};
     for (auto e: elts){if(c)r<<g;r<<str(e);c=1;} return r.str();
+}
+
+std::vector<std::string> split(std::string st, const std::string sp){
+    std::vector<std::string> r{}; int end;
+    while(true){
+        end = st.find(sp);
+        if(end == std::string::npos){r.push_back(st);break;}
+        r.push_back(st.substr(0, end));
+        st = st.substr(end + sp.size());
+    }
+    return r;
 }
 
 }
@@ -612,7 +624,7 @@ class For(stmt):
         if len(fo.orelse):
             raise Exception("For loops with strange 'else:' block are not supported yet")
 
-        if type(fo.iter) == ast.Call and fo.iter.func.id == 'range':
+        if type(fo.iter) == ast.Call and type(fo.iter.func) == ast.Name and fo.iter.func.id == 'range':
             return ForCStyle._from_py(fo)
 
         target = convert(fo.target)
@@ -623,13 +635,9 @@ class For(stmt):
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
-            '',
-            curr_indent + '/* This is probably not what you need: */',
             curr_indent + 'for (auto ' + render(self.target) + ': ' + render(self.iter) + '){',
             *[render(b, indent, next_indent) for b in self.body],
-            curr_indent + '}',
-            curr_indent + '/* Sorry for the inconvinience */',
-            ''
+            curr_indent + '}'
         ])
 
 class ForCStyle(stmt):
@@ -670,14 +678,13 @@ class ForCStyle(stmt):
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
-            curr_indent + '/* This is translated from something else (eg. range()): */',
+            curr_indent + '/* This was translated from something else (eg. range()): */',
             curr_indent + 'for ('
                 + render(self.init, semicolon=False) + '; '
                 + render(self.cond, brackets=False) + '; '
                 + render(self.incr, semicolon=False, brackets=False) + '){',
             *[render(b, indent, next_indent) for b in self.body],
-            curr_indent + '}',
-            curr_indent + '/* Hope it works */'
+            curr_indent + '}'
         ])
 
 class FunctionDef(stmt):
@@ -821,10 +828,13 @@ class JoinedStr(expr):
         values = []
         for v in js.values:
             if type(v) == ast.FormattedValue:
-                v = convert(v.value)
+                v = v.value
+            v = convert(v)
+            if type(v) == Constant and type(v.value) == str:
+                nv = v
             else:
-                v = convert(v)
-            values.append(Call(func=Name(id='str'), args=[v]))
+                nv = Call(func=Name(id='str'), args=[v])
+            values.append(nv)
         return cls(values=values)
 
 class List(expr):

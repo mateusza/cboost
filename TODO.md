@@ -4,6 +4,8 @@
 
 Everything is buggy. You are lucky if it worked with your code.
 
+- 
+
 ## Currently supported:
 - `if` condition
 - `while` loop
@@ -16,6 +18,10 @@ Everything is buggy. You are lucky if it worked with your code.
     - `len()`
     - `any()`, `all()`
     - `sum()`
+    - `abs()`
+- methods:
+    - `.join()`
+    - `.split()`
 - some arithmetic and boolean operators
 - only variables with explicitly given types (`a: int = 7`)
 
@@ -27,7 +33,6 @@ Everything is buggy. You are lucky if it worked with your code.
 - python functions like:
  - `min()`
  - `max()`
- - `abs()`
 - python list expressions `[x for x in ...]`
 - classes and methods
 - ability to select compiler, flags etc
