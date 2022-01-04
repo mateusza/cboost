@@ -15,22 +15,120 @@ _disabled = False
 _cache = True
 
 _cpp_functions = """
-/* simple re-implementation of some python builtin functions */
-template<typename T> bool all(T elts){for(auto e: elts) if(!e) return false; return true;}
-template<typename T> bool any(T elts){for(auto e: elts) if(e) return true; return false;}
-template<typename T> T sum(std::vector<T> elts){T s{0}; for(auto e: elts) s += e; return s;}
-template<typename T> void print(T v){std::cout << v << std::endl;}
-template<typename T> std::string str(const T n){return std::to_string(n);}
-template <> std::string str(const std::string s){return s;}
-template <> std::string str(const char *s){return std::string{s};}
-template <typename VT> std::string str(std::vector<VT> vec){
-    std::string r; bool c{0};
-    for(auto e: vec){if(c)r+=", "; r+=str(e);}
-    return "["+r+"]";
+#include <iostream>
+#include <algorithm>
+#include <vector>
+#include <stdexcept>
+#include <sstream>
+
+/* simple re-implementation of some python builtin methods */
+
+namespace py {
+template<typename T> std::string join(const std::string g, const T elts);
+std::vector<std::string> split(std::string st, const std::string sp);
+template <typename T> void extend(std::vector<T>& l, const std::vector<T> src);
+
 }
-template <typename T> unsigned long len(const T c){throw std::runtime_error("len() not supported");}
-template <> unsigned long len(const std::string s){return s.length();}
-template <typename VT> unsigned long len(const std::vector<VT> v){return v.size();}
+
+/* simple re-implementation of some python builtin functions */
+template<typename T>
+bool all(const T elts){for(auto e: elts) if(!e) return false; return true;}
+
+template<typename T>
+bool any(const T elts){for(auto e: elts) if(e) return true; return false;}
+
+template<typename T>
+T sum(const std::vector<T> elts){T s{0}; for(auto e: elts) s += e; return s;}
+
+template<typename T>
+std::string str(const T n){return std::to_string(n);}
+
+template<>
+std::string str(const std::string s){return s;}
+
+template<>
+std::string str(const char *s){return std::string{s};}
+
+template<>
+std::string str(const char s){return std::string{s};}
+
+template<>
+std::string str(const bool b){return b?"True":"False";}
+
+template<typename VT>
+std::string str(std::vector<VT> vec){return "["+py::join(", ", vec)+"]";}
+
+template<typename T>
+void print(const T v){std::cout << str(v) << std::endl;}
+
+template<typename T>
+unsigned long len(const T c){throw std::runtime_error("len() not supported");}
+
+template<>
+unsigned long len(const std::string s){return s.length();}
+
+template<typename VT>
+unsigned long len(const std::vector<VT> v){return v.size();}
+
+template<typename T>
+std::string operator * (const T& lhs, const std::string rhs){
+    std::stringstream r;
+    for(auto i=0; i<lhs; ++i) r<<rhs; return r.str();
+}
+
+template <typename T>
+std::string operator * (const std::string lhs, const T& rhs){
+    return rhs * lhs;
+}
+
+template <typename T>
+std::vector<T> operator + (const std::vector<T> &lhs, const std::vector<T> &rhs){
+    std::vector<T> r{};
+    py::extend(r, lhs);
+    py::extend(r, rhs);
+    return r;
+}
+
+template <typename T>
+T abs(T n){return (n<0)?(-n):(n);}
+
+template<typename T, typename VT>
+std::vector<VT> operator * (const T& n, const std::vector<VT> v){
+    std::vector<VT> r{};
+    for (auto i=0; i<n; ++i) py::extend(r, v); return r;
+}
+
+template<typename T, typename VT>
+std::vector<VT> operator * (const std::vector<VT> v, const T& n){return n * v;}
+
+/* simple re-implementation of some python builtin types' methods */
+namespace py {
+
+template<typename T>
+std::string join(const std::string g, const T elts){
+    std::stringstream r; bool c{0};
+    for (auto e: elts){if(c)r<<g;r<<str(e);c=1;} return r.str();
+}
+
+std::vector<std::string> split(std::string st, const std::string sp){
+    std::vector<std::string> r{}; int end;
+    while(true){
+        end = st.find(sp);
+        if(end == std::string::npos){r.push_back(st);break;}
+        r.push_back(st.substr(0, end));
+        st = st.substr(end + sp.size());
+    }
+    return r;
+}
+
+template <typename T>
+void append(std::vector<T>& l, const T e){l.push_back(e);}
+
+template <typename T>
+void extend(std::vector<T>& l, const std::vector<T> src){std::copy(src.begin(), src.end(), std::back_inserter(l));}
+
+}
+
 """
 
 def disable():
@@ -46,6 +144,16 @@ def _is_disabled():
         sys.stderr.write('Warning: cboost disabled by CBOOST_DISABLE\n')
         return True
     return False
+
+@functools.cache
+def _use_cache():
+    global _cache
+    if _cache == False:
+        return False
+    if os.getenv('CBOOST_NOCACHE'):
+        sys.stderr.write('Warning: cboost cache disabled by CBOOST_NOCACHE\n')
+        return False
+    return True
 
 class AST:
     """
@@ -80,10 +188,9 @@ class arg(AST):
         """
         arg
         """
-        return cls(**{
-            'arg': a.arg,
-            'annotation': convert(a.annotation)
-        })
+        arg = a.arg
+        annotation = convert(a.annotation)
+        return cls(arg=arg, annotation=annotation)
 
     def _render(self, **kwargs):
         try:
@@ -99,7 +206,7 @@ class arguments(AST):
     kw_defaults: list
     defaults: list
 
-    def __init__(self, args, posonlyargs, kwonlyargs, kw_defaults, defaults):
+    def __init__(self, *, args, posonlyargs, kwonlyargs, kw_defaults, defaults):
         self.args = args
         self.posonlyargs = posonlyargs
         self.kwonlyargs = kwonlyargs
@@ -108,20 +215,16 @@ class arguments(AST):
 
     @classmethod
     def _from_py(cls, a: ast.arguments):
-        return cls(**{
-            'args': convert_list(a.args),
-            'posonlyargs': convert_list(a.posonlyargs),
-            'kwonlyargs': convert_list(a.kwonlyargs),
-            'kw_defaults': convert_list(a.kw_defaults),
-            'defaults': convert_list(a.defaults)
-        })
+        args = convert_list(a.args)
+        posonlyargs = convert_list(a.posonlyargs)
+        kwonlyargs = convert_list(a.kwonlyargs)
+        kw_defaults = convert_list(a.kw_defaults)
+        defaults = convert_list(a.defaults)
+
+        return cls(args=args, posonlyargs=posonlyargs, kwonlyargs=kwonlyargs, kw_defaults=kw_defaults, defaults=defaults)
 
     def _render(self, **kwargs):
-        # FIXME: defaults
-
-        return ', '.join([
-            render(a) for na, a in enumerate(self.args)
-        ])
+        return ', '.join(render(a) for a in self.args)
 
 class boolop(AST):
     """
@@ -237,8 +340,7 @@ class Assign(stmt):
         # TODO: Multiple assignments
         targets = convert_list(assign.targets)
         value = convert(assign.value)
-        a = cls(targets=targets, value=value)
-        return a
+        return cls(targets=targets, value=value)
 
     def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
         return curr_indent + render(self.targets[0]) + ' = ' + render(self.value, brackets=False) + (';' if semicolon else '')
@@ -292,22 +394,19 @@ class BinOp(expr):
 
     @classmethod
     def _from_py(cls, bo: ast.BinOp):
-        return cls(**{
-            'left': convert(bo.left),
-            'op': convert(bo.op),
-            'right': convert(bo.right)
-        })
+        left = convert(bo.left)
+        op = convert(bo.op)
+        right = convert(bo.right)
+        return cls(left=left, op=op, right=right)
 
     def _render(self, brackets: bool = True, **kwargs):
-        return ''.join([
-            '(' if brackets else '',
-            render(self.left),
-            ' ',
-            render(self.op),
-            ' ',
-            render(self.right),
-            ')' if brackets else ''
-        ])
+        return (
+            ('(' if brackets else '')
+            + render(self.left) + ' '
+            + render(self.op) + ' '
+            + render(self.right)
+            + (')' if brackets else '')
+        )
 
 class BitAnd(operator):
     r: str = '&'
@@ -337,13 +436,11 @@ class BoolOp(expr):
         })
 
     def _render(self, brackets: bool = True, **kwargs):
-        return ''.join([
-            '(' if brackets else '',
-            (' ' + render(self.op) + ' ').join([
-                render(v) for v in self.values
-            ]),
-            ')' if brackets else ''
-        ])
+        return (
+            ('(' if brackets else '')
+            + (' ' + render(self.op) + ' ').join(render(v) for v in self.values)
+            + (')' if brackets else '')
+        )
 
 class Break(stmt):
     def __init__(self):
@@ -362,7 +459,7 @@ class Call(expr):
     """
     func: expr
     args: list
-    keywords: list # WTF?
+    keywords: list # named args :-)
 
     def __init__(self, func: expr = None, args: list = [], keywords: list = []):
         self.func = func
@@ -371,19 +468,26 @@ class Call(expr):
 
     @classmethod
     def _from_py(cls, call: ast.Call):
-        return cls(**{
-            'func': convert(call.func),
-            'args': convert_list(call.args),
-            'keywords': convert_list(call.keywords)
-        })
+        if len(call.keywords) != 0:
+            raise Exception("Named arguments are not supported in C++")
+
+        if type(call.func) == ast.Name: # qwe()
+            func = convert(call.func)
+            args = convert_list(call.args)
+        elif type(call.func) == ast.Attribute: # something.join()
+            func = Name(id='py::'+call.func.attr)
+            args = [convert(call.func.value), *convert_list(call.args)]
+        else:
+            raise Exception("Unknown call: "+ast.dump(call))
+        return cls(func=func, args=args)
 
     def _render(self, **kwargs):
-        return ''.join([
-            render(self.func),
-            '(',
-            ', '.join([render(a, brackets=False) for a in self.args]),
-            ')'
-        ])
+        return (
+            render(self.func)
+            + '('
+            + ', '.join(render(a, brackets=False) for a in self.args)
+            + ')'
+        )
 
 class Compare(expr):
     """
@@ -433,22 +537,20 @@ class Compare(expr):
             except AttributeError:
                 raise Exception("Unable to rewrite 'in' comparison")
 
-        return cls(**{
-            'left': convert(cmpr.left),
-            'ops': convert_list(cmpr.ops),
-            'comparators': convert_list(cmpr.comparators)
-        })
+        left = convert(cmpr.left),
+        ops = convert_list(cmpr.ops),
+        comparators = convert_list(cmpr.comparators)
+
+        return cls(left=left, ops=ops, comparators=comparators)
 
     def _render(self, brackets: bool = True, **kwargs):
-        return ''.join([
-            '(' if brackets else '',
-            render(self.left),
-            ' ',
-            render(self.ops[0]),
-            ' ',
-            render(self.comparators[0]),
-            ')' if brackets else ''
-        ])
+        return (
+            ('(' if brackets else ''),
+            + render(self.left) + ' '
+            + render(self.ops[0]) + ' '
+            + render(self.comparators[0])
+            + (')' if brackets else '')
+        )
 
 class Constant(expr):
     """
@@ -475,16 +577,14 @@ class Constant(expr):
             value = int(value)
         if value == None:
             value = 0
-        c = cls(value=value)
-        return c
+        return cls(value=value)
 
     def _render(self, **kwargs):
         match self.value:
             case int(x)|float(x):
                 return str(x)
             case str(x):
-                # TODO: string class!!!
-                return '"'+x.replace('"', '\\"')+'"'
+                return 'std::string{' + '"'+x.replace('"', '\\"')+'"' + '}'
 
 class Continue(stmt):
     def __init__(self):
@@ -515,8 +615,7 @@ class Expr(stmt):
         Convert Python AST Expr
         """
         value = convert(e.value)
-        a = cls(value=value)
-        return a
+        return cls(value=value)
 
     def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
         return curr_indent + render(self.value, brackets=False) + (';' if semicolon else '')
@@ -538,24 +637,20 @@ class For(stmt):
         if len(fo.orelse):
             raise Exception("For loops with strange 'else:' block are not supported yet")
 
-        if type(fo.iter) == ast.Call and fo.iter.func.id == 'range':
+        if type(fo.iter) == ast.Call and type(fo.iter.func) == ast.Name and fo.iter.func.id == 'range':
             return ForCStyle._from_py(fo)
 
-        return cls(
-            target=convert(fo.target),
-            iter=convert(fo.iter),
-            body=convert_list(fo.body)
-        )
+        target = convert(fo.target)
+        iter = convert(fo.iter)
+        body = convert_list(fo.body)
+
+        return cls(target=target, iter=iter, body=body)
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
-            '',
-            curr_indent + '/* This is probably not what you need: */',
             curr_indent + 'for (auto ' + render(self.target) + ': ' + render(self.iter) + '){',
             *[render(b, indent, next_indent) for b in self.body],
-            curr_indent + '}',
-            curr_indent + '/* Sorry for the inconvinience */',
-            ''
+            curr_indent + '}'
         ])
 
 class ForCStyle(stmt):
@@ -589,24 +684,20 @@ class ForCStyle(stmt):
         else:
             incr = AugAssign(target=target, op=Add(), value=step)
 
-        return cls(
-            init=AnnAssign(target=target, annotation=Name(id='auto'), value=start, simple=1),
-            cond=Compare(left=target, ops=[Lt()], comparators=[stop]),
-            incr=incr,
-            body=convert_list(fo.body)
-        )
-
+        init = AnnAssign(target=target, annotation=Name(id='auto'), value=start, simple=1)
+        cond = Compare(left=target, ops=[Lt()], comparators=[stop])
+        body = convert_list(fo.body)
+        return cls(init=init, cond=cond, incr=incr, body=body)
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
-            curr_indent + '/* This is translated from something else (eg. range()): */',
+            curr_indent + '/* This was translated from something else (eg. range()): */',
             curr_indent + 'for ('
                 + render(self.init, semicolon=False) + '; '
                 + render(self.cond, brackets=False) + '; '
                 + render(self.incr, semicolon=False, brackets=False) + '){',
             *[render(b, indent, next_indent) for b in self.body],
-            curr_indent + '}',
-            curr_indent + '/* Hope it works */'
+            curr_indent + '}'
         ])
 
 class FunctionDef(stmt):
@@ -637,7 +728,8 @@ class FunctionDef(stmt):
         try:
             return_type = convert_type(self.returns.id)
         except AttributeError:
-            raise Exception('Functions without return type annotations are not supported')
+            return_type = 'void'
+#            raise Exception('Functions without return type annotations are not supported')
         return return_type + ' ' + self.name + '(' + render(self.args) + ')'
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
@@ -735,6 +827,29 @@ class IfExp(expr):
             + (')' if brackets else '')
         )
 
+class JoinedStr(expr):
+    values: list
+
+    def __init__(self, values: list = []):
+        self.values = values
+    
+    def _render(self, brackets: bool = True, **kwargs):
+        return ' + '.join([render(v) for v in self.values])
+
+    @classmethod
+    def _from_py(cls, js: ast.JoinedStr()):
+        values = []
+        for v in js.values:
+            if type(v) == ast.FormattedValue:
+                v = v.value
+            v = convert(v)
+            if type(v) == Constant and type(v.value) == str:
+                nv = v
+            else:
+                nv = Call(func=Name(id='str'), args=[v])
+            values.append(nv)
+        return cls(values=values)
+
 class List(expr):
     elts: list
 
@@ -748,10 +863,10 @@ class List(expr):
         return Std_Vector._from_py_list(the_list)
 
 class Lt(cmpop):
-    r = '<'
+    r: str = '<'
 
 class LtE(cmpop):
-    r = '<='
+    r: str = '<='
 
 class Mod(operator):
     r: str = '%'
@@ -761,11 +876,7 @@ class Module(mod):
     cboost AST Module
     """
     body: list
-    includes: list = [
-        'vector',
-        'iostream',
-        'stdexcept'
-    ]
+
     def __init__(self, body: list=[]):
         self.body = body
 
@@ -775,13 +886,11 @@ class Module(mod):
         Convert Python AST Module
         """
         body = convert_list(module.body)
-        m = cls(body=body)
-        return m
+        return cls(body=body)
 
     def _render(self, indent: int = 4, curr_indent: str = '', **kwargs):
         return '\n'.join([
             f'// Module translated by cboost',
-            *[f'#include <{i}>' for i in self.includes],
             _cpp_functions,
             'extern "C" {',
             *[f._render_declaration() +';' for f in self.body if isinstance(f, FunctionDef)],
@@ -812,8 +921,7 @@ class Name(expr):
         convert Python AST Name
         """
         id = name.id
-        n = cls(id=id)
-        return n
+        return cls(id=id)
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return self.id
@@ -832,9 +940,8 @@ class Return(stmt):
 
     @classmethod
     def _from_py(cls, r: ast.Return):
-        return cls(**{
-            'value': convert(r.value)
-        })
+        value = convert(r.value)
+        return cls(value=value)
 
     def _render(self, curr_indent: str = '', **kwargs):
         return curr_indent + 'return ' + render(self.value, brackets=False) + ';'
@@ -857,7 +964,7 @@ class Std_Vector(expr):
 
 class Sub(operator):
     """
-    cboost Sub
+    cboost sub
     """
     r: str = '-'
 
@@ -878,6 +985,39 @@ class Subscript(expr):
     def _render(self, brackets=True, **kwargs):
         return ('(' if brackets else '') + render(self.value) + '[' + render(self.slice) + ']' + (')' if brackets else '')
 
+class UnaryOp(expr):
+    """
+    cboost BinOp
+    """
+    operand: expr
+    op: expr
+
+    def __init__(self, operand: expr = None, op: expr = None):
+        self.op = op
+        self.operand = operand
+
+    @classmethod
+    def _from_py(cls, uo: ast.UnaryOp):
+        return cls(
+            op = convert(uo.op),
+            operand = convert(uo.operand)
+        )
+
+    def _render(self, brackets: bool = True, **kwargs):
+        return (
+            ('(' if brackets else '')
+            + render(self.op)
+            + ' '
+            + render(self.operand)
+            + (')' if brackets else '')
+        )
+
+class USub(operator):
+    """
+    cboost sub
+    """
+    r: str = '-'
+
 class While(stmt):
     """
     cboost AST While
@@ -892,10 +1032,9 @@ class While(stmt):
     def _from_py(cls, wh: ast.While):
         if len(wh.orelse):
             raise Exception("While loops with strange 'else:' block are not supported yet")
-        return cls(**{
-            'test': convert(wh.test),
-            'body': convert_list(wh.body)
-        })
+        test = convert(wh.test)
+        body = convert_list(wh.body)
+        return cls(test=test, body=body)
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
@@ -999,6 +1138,7 @@ __class_conversions: dict = {
     ast.If:         If,
     ast.IfExp:      IfExp,
     ast.In:         In,
+    ast.JoinedStr:  JoinedStr,
     ast.List:       List,
     ast.Lt:         Lt,
     ast.LtE:        LtE,
@@ -1011,6 +1151,8 @@ __class_conversions: dict = {
     ast.Return:     Return,
     ast.Sub:        Sub,
     ast.Subscript:  Subscript,
+    ast.UnaryOp:    UnaryOp,
+    ast.USub:       USub,
     ast.While:      While,
 }
 
@@ -1038,6 +1180,9 @@ def find_function_name(py_src):
     return ast.parse(py_src).body[0].name
 
 def _make_cpp(func: object) -> str:
+    """
+    Convert function code to C++, compile it to shared library and replace with library call.
+    """
     global _boosted_py_src
     python_src: str = inspect.getsource(func)
     _boosted_py_src += python_src + '\n\n'
@@ -1052,12 +1197,12 @@ def call(name: str, args: list, kwargs: dict):
         f = _boosted_functions[name] # once again
     return f(*args, **kwargs)
 
-def _src_id(cpp_src: str) -> str:
-    return hashlib.sha256(cpp_src.encode()).hexdigest()[0:24]
+def _src_id(src: str) -> str:
+    return hashlib.sha256(src.encode()).hexdigest()[0:24]
 
 def _load_so():
     global _boosted_py_src
-    global _no_cache
+    global _cache
 
     dirname = '__pycache__/__cboost__'
 
@@ -1066,7 +1211,7 @@ def _load_so():
 
     cpp_id: str = None
 
-    if _cache:
+    if _use_cache():
         try:
             with open(fn_py_hash) as f:
                 cpp_id = f.read().strip()
@@ -1084,7 +1229,11 @@ def _load_so():
     fn_basename = f'{dirname}/{cpp_id}'
     fn_so = f'{fn_basename}.so'
 
-    if not os.path.exists(fn_so):
+    try:
+        if _use_cache() == False:
+            raise OSError
+        so = ctypes.cdll.LoadLibrary(fn_so)
+    except OSError as e:
         fn_cpp = f'{fn_basename}.cpp'
         fn_errors = f'{fn_basename}.log'
 
@@ -1095,13 +1244,13 @@ def _load_so():
             f.write(cpp_id)
 
         # TODO: compiler, options, flags, etc
-        gcc_cmd = f'g++ -fPIC -Wall -O2 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
+        gcc_cmd = f'g++ -fPIC -Werror -O2 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
         gcc_ret = os.system(gcc_cmd)
         if gcc_ret != 0:
-            raise Exception(f'C++ compilation failed. See {fn_errors} for details.')
+            os.unlink(fn_py_hash)
+            raise Exception(f'C++ compilation failed. See {fn_errors} for details and {fn_cpp} for generated C++ code.')
         os.unlink(fn_errors)
-
-    so = ctypes.cdll.LoadLibrary(fn_so)
+        so = ctypes.cdll.LoadLibrary(fn_so)
 
     for name in _boosted_functions.keys():
         _boosted_functions[name] = so[name]

@@ -1,12 +1,9 @@
 #!/usr/bin/env python3.10
 
 """
-Calculate sum of first 10 primes.
+Calculate number of primes less then given value (π(x))
 
-https://oeis.org/A007504
-
-0, 2, 5, 10, 17, 28, 41, 58, 77, 100, 129, 160, 197, 238
-                                      ^^^
+https://en.wikipedia.org/wiki/Prime-counting_function
 """
 
 import cboost
@@ -27,26 +24,32 @@ def is_prime(n: int) -> bool:
     return True
 
 @cboost.make_cpp
-def sum_10_primes() -> int:
-    primes: auto = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-    p: auto = 2
-    for i in range(10):
-        while True:
-            if is_prime(p):
-                break
-            p += 1
-        primes[i] = p
-        p += 1
-    print(primes)
-    return sum(primes)
+def prime_above(n: int) -> int:
+    n += 1
+    while is_prime(n) == 0:
+        n += 1
+    print(n)
+    return n
+
+@cboost.make_cpp
+def prime_below(n: int) -> int:
+    n -= 1
+    while is_prime(n) == 0:
+        n -= 1
+    print(n)
+    return n
+
+@cboost.make_cpp
+def next_val(n: int) -> int:
+    return prime_above(n) * prime_below(n)
 
 if __name__ == '__main__':
     import sys
     try:
-        ...
+        n = int(sys.argv[1])
     except IndexError:
         print(f'usage: {sys.argv[0]} N')
         sys.exit(1)
 
-    print(f'{sum_10_primes() = }')
+    print(f'{next_val(n) = }')
 
