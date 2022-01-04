@@ -16,6 +16,7 @@ _cache = True
 
 _cpp_functions = """
 #include <iostream>
+#include <algorithm>
 #include <vector>
 #include <stdexcept>
 #include <sstream>
@@ -25,6 +26,8 @@ _cpp_functions = """
 namespace py {
 template<typename T> std::string join(const std::string g, const T elts);
 std::vector<std::string> split(std::string st, const std::string sp);
+template <typename T> void extend(std::vector<T>& l, const std::vector<T> src);
+
 }
 
 /* simple re-implementation of some python builtin functions */
@@ -79,7 +82,24 @@ std::string operator * (const std::string lhs, const T& rhs){
 }
 
 template <typename T>
+std::vector<T> operator + (const std::vector<T> &lhs, const std::vector<T> &rhs){
+    std::vector<T> r{};
+    py::extend(r, lhs);
+    py::extend(r, rhs);
+    return r;
+}
+
+template <typename T>
 T abs(T n){return (n<0)?(-n):(n);}
+
+template<typename T, typename VT>
+std::vector<VT> operator * (const T& n, const std::vector<VT> v){
+    std::vector<VT> r{};
+    for (auto i=0; i<n; ++i) py::extend(r, v); return r;
+}
+
+template<typename T, typename VT>
+std::vector<VT> operator * (const std::vector<VT> v, const T& n){return n * v;}
 
 /* simple re-implementation of some python builtin types' methods */
 namespace py {
@@ -100,6 +120,12 @@ std::vector<std::string> split(std::string st, const std::string sp){
     }
     return r;
 }
+
+template <typename T>
+void append(std::vector<T>& l, const T e){l.push_back(e);}
+
+template <typename T>
+void extend(std::vector<T>& l, const std::vector<T> src){std::copy(src.begin(), src.end(), std::back_inserter(l));}
 
 }
 
