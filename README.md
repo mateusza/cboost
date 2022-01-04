@@ -85,7 +85,7 @@ int is_prime(long n)
     if ((n % 2) == 0){
         return 0;
     }
-    /* This is translated from something else (eg. range()): */
+    /* This was translated from something else (eg. range()): */
     for (auto d = 3; d < n; d += 2){
         if ((n % d) == 0){
             return 0;
@@ -94,20 +94,18 @@ int is_prime(long n)
             break;
         }
     }
-    /* Hope it works */
     return 1;
 }
 
 long how_many_primes(long limit)
 {
-    int how_many = 0;
-    /* This is translated from something else (eg. range()): */
+    long how_many = 0;
+    /* This was translated from something else (eg. range()): */
     for (auto i = 2; i < limit; ++i){
         if (is_prime(i)){
             how_many += 1;
         }
     }
-    /* Hope it works */
     return how_many;
 }
 
