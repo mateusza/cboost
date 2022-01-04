@@ -545,7 +545,7 @@ class Compare(expr):
 
     def _render(self, brackets: bool = True, **kwargs):
         return (
-            ('(' if brackets else ''),
+            ('(' if brackets else '')
             + render(self.left) + ' '
             + render(self.ops[0]) + ' '
             + render(self.comparators[0])
