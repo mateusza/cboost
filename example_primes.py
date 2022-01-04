@@ -29,6 +29,7 @@ def how_many_primes(limit: int) -> int:
     for i in range(2, limit):
         if is_prime(i):
             how_many += 1
+    print(len(range(1,100,3)))
     return how_many
 
 if __name__ == '__main__':

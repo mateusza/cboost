@@ -19,6 +19,7 @@ def test_lists():
 
     for e in lista1 + lista2:
         print(e)
+    print(lista1 + lista2)
 
 if __name__ == '__main__':
     import sys
