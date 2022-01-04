@@ -162,10 +162,9 @@ class arg(AST):
         """
         arg
         """
-        return cls(**{
-            'arg': a.arg,
-            'annotation': convert(a.annotation)
-        })
+        arg = a.arg
+        annotation = convert(a.annotation)
+        return cls(arg=arg, annotation=annotation)
 
     def _render(self, **kwargs):
         try:
@@ -181,7 +180,7 @@ class arguments(AST):
     kw_defaults: list
     defaults: list
 
-    def __init__(self, args, posonlyargs, kwonlyargs, kw_defaults, defaults):
+    def __init__(self, *, args, posonlyargs, kwonlyargs, kw_defaults, defaults):
         self.args = args
         self.posonlyargs = posonlyargs
         self.kwonlyargs = kwonlyargs
@@ -190,20 +189,16 @@ class arguments(AST):
 
     @classmethod
     def _from_py(cls, a: ast.arguments):
-        return cls(**{
-            'args': convert_list(a.args),
-            'posonlyargs': convert_list(a.posonlyargs),
-            'kwonlyargs': convert_list(a.kwonlyargs),
-            'kw_defaults': convert_list(a.kw_defaults),
-            'defaults': convert_list(a.defaults)
-        })
+        args = convert_list(a.args)
+        posonlyargs = convert_list(a.posonlyargs)
+        kwonlyargs = convert_list(a.kwonlyargs)
+        kw_defaults = convert_list(a.kw_defaults)
+        defaults = convert_list(a.defaults)
+
+        return cls(args=args, posonlyargs=posonlyargs, kwonlyargs=kwonlyargs, kw_defaults=kw_defaults, defaults=defaults)
 
     def _render(self, **kwargs):
-        # FIXME: defaults
-
-        return ', '.join([
-            render(a) for na, a in enumerate(self.args)
-        ])
+        return ', '.join(render(a) for a in self.args)
 
 class boolop(AST):
     """
@@ -319,8 +314,7 @@ class Assign(stmt):
         # TODO: Multiple assignments
         targets = convert_list(assign.targets)
         value = convert(assign.value)
-        a = cls(targets=targets, value=value)
-        return a
+        return cls(targets=targets, value=value)
 
     def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
         return curr_indent + render(self.targets[0]) + ' = ' + render(self.value, brackets=False) + (';' if semicolon else '')
@@ -374,22 +368,19 @@ class BinOp(expr):
 
     @classmethod
     def _from_py(cls, bo: ast.BinOp):
-        return cls(**{
-            'left': convert(bo.left),
-            'op': convert(bo.op),
-            'right': convert(bo.right)
-        })
+        left = convert(bo.left)
+        op = convert(bo.op)
+        right = convert(bo.right)
+        return cls(left=left, op=op, right=right)
 
     def _render(self, brackets: bool = True, **kwargs):
-        return ''.join([
-            '(' if brackets else '',
-            render(self.left),
-            ' ',
-            render(self.op),
-            ' ',
-            render(self.right),
-            ')' if brackets else ''
-        ])
+        return (
+            ('(' if brackets else '')
+            + render(self.left) + ' '
+            + render(self.op) + ' '
+            + render(self.right)
+            + (')' if brackets else '')
+        )
 
 class BitAnd(operator):
     r: str = '&'
@@ -419,13 +410,11 @@ class BoolOp(expr):
         })
 
     def _render(self, brackets: bool = True, **kwargs):
-        return ''.join([
-            '(' if brackets else '',
-            (' ' + render(self.op) + ' ').join([
-                render(v) for v in self.values
-            ]),
-            ')' if brackets else ''
-        ])
+        return (
+            ('(' if brackets else '')
+            + (' ' + render(self.op) + ' ').join(render(v) for v in self.values)
+            + (')' if brackets else '')
+        )
 
 class Break(stmt):
     def __init__(self):
@@ -470,7 +459,7 @@ class Call(expr):
         return (
             render(self.func)
             + '('
-            + ', '.join([render(a, brackets=False) for a in self.args])
+            + ', '.join(render(a, brackets=False) for a in self.args)
             + ')'
         )
 
@@ -522,22 +511,20 @@ class Compare(expr):
             except AttributeError:
                 raise Exception("Unable to rewrite 'in' comparison")
 
-        return cls(**{
-            'left': convert(cmpr.left),
-            'ops': convert_list(cmpr.ops),
-            'comparators': convert_list(cmpr.comparators)
-        })
+        left = convert(cmpr.left),
+        ops = convert_list(cmpr.ops),
+        comparators = convert_list(cmpr.comparators)
+
+        return cls(left=left, ops=ops, comparators=comparators)
 
     def _render(self, brackets: bool = True, **kwargs):
-        return ''.join([
-            '(' if brackets else '',
-            render(self.left),
-            ' ',
-            render(self.ops[0]),
-            ' ',
-            render(self.comparators[0]),
-            ')' if brackets else ''
-        ])
+        return (
+            ('(' if brackets else ''),
+            + render(self.left) + ' '
+            + render(self.ops[0]) + ' '
+            + render(self.comparators[0])
+            + (')' if brackets else '')
+        )
 
 class Constant(expr):
     """
