@@ -537,8 +537,8 @@ class Compare(expr):
             except AttributeError:
                 raise Exception("Unable to rewrite 'in' comparison")
 
-        left = convert(cmpr.left),
-        ops = convert_list(cmpr.ops),
+        left = convert(cmpr.left)
+        ops = convert_list(cmpr.ops)
         comparators = convert_list(cmpr.comparators)
 
         return cls(left=left, ops=ops, comparators=comparators)
