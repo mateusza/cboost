@@ -208,18 +208,21 @@ struct range {
         T& operator*(){ return current; }
         iterator& operator++(){
             current += step;
-            if ((step>0 && current>stop)||(step<0 && current<stop)) current=stop;
+            if ((step>0 && current>stop)||(step<0 && current<stop))
+                current=stop;
             return *this;
         }
-        friend bool operator== (const iterator& a, const iterator& b) { return a.current == b.current; };
-        friend bool operator!= (const iterator& a, const iterator& b) { return a.current != b.current; };
+        friend bool operator== (const iterator& a, const iterator& b) {
+            return a.current == b.current;
+        };
+        friend bool operator!= (const iterator& a, const iterator& b) {
+            return a.current != b.current;
+        };
         private:
         T current, step, stop;
     };
     iterator begin() const {
-        auto pos = this->start;
-        if (step<0 && start<stop) pos = this->stop;
-        if (step>0 && stop<start) pos = this->stop;
+        auto pos = ((step<0 && start<stop)||(step>0 && stop<start)) ? this->stop : this->start;
         return iterator(pos, this->step, this->stop);
     }
     iterator end() const {
@@ -236,7 +239,8 @@ struct range {
         stop{stop},
         step{step}
     {
-        if (step==0) throw std::runtime_error("range() step cannot be zero");
+        if (step==0)
+            throw std::runtime_error("range() step cannot be zero");
     }
     unsigned long length() const {
         return (stop - start) / step;
