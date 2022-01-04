@@ -1049,8 +1049,8 @@ __class_conversions: dict = {
 }
 
 __type_conversions: dict = {
-    'bool':         'int',
-    'int':          'long',
+    'bool':         'int32_t',
+    'int':          'int64_t',
     'float':        'double',
     'str':          'std::string',
     'list':         'auto', # FIXME

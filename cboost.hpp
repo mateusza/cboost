@@ -93,22 +93,22 @@ void print(const T v) {
 }
 
 template<typename T>
-unsigned int64 len(const T c) {
+int64_t len(const T c) {
     throw std::runtime_error("len() not supported with this type");
 }
 
 template<>
-unsigned int64 len(const std::string s) {
+int64_t len(const std::string s) {
     return s.length();
 }
 
 template<typename VT>
-unsigned int64 len(const std::vector<VT> v) {
+int64_t len(const std::vector<VT> v) {
     return v.size();
 }
 
 template<typename T>
-unsigned int64 len(const py::classes::range<T> r) {
+int64_t len(const py::classes::range<T> r) {
     return r.length();
 }
 
@@ -130,7 +130,7 @@ std::vector<T> operator + (
         const std::vector<T> &lhs,
         const std::vector<T> &rhs) {
     std::vector<T> r{};
-    r.reserve(lhs.size() + rhs.size();
+    r.reserve(lhs.size() + rhs.size());
     py::methods::extend(r, lhs);
     py::methods::extend(r, rhs);
     return r;
@@ -162,7 +162,7 @@ std::vector<VT> operator * (const std::vector<VT> v, const T& n) {
 
 template<typename T>
 py::classes::range<T> range(T a) {
-    return {a};
+    return py::classes::range<T>{a};
 }
 
 template<typename T, typename T2>
@@ -208,12 +208,12 @@ std::vector<std::string> split(std::string st, const std::string sp) {
 }
 
 template <typename T>
-void append(std::vector<T>& const l, const T e) {
+void append(std::vector<T>& l, const T e) { // NOLINT
     l.push_back(e);
 }
 
 template <typename T>
-void extend(std::vector<T>& const l, const std::vector<T> src) {
+void extend(std::vector<T>& l, const std::vector<T> src) { // NOLINT
     std::copy(src.begin(), src.end(), std::back_inserter(l));
 }
 
@@ -262,7 +262,7 @@ struct range {
         if (step == 0)
             throw std::runtime_error("range() step cannot be zero");
     }
-    unsigned int64 length() const {
+    int64_t length() const {
         return (stop - start) / step;
     }
 
