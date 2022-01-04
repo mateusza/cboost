@@ -14,123 +14,7 @@ _boosted_py_src: str = ''
 _disabled = False
 _cache = True
 
-_cpp_functions = """
-#include <iostream>
-#include <algorithm>
-#include <vector>
-#include <stdexcept>
-#include <sstream>
-
-/* simple re-implementation of some python builtin methods */
-
-namespace py {
-template<typename T> std::string join(const std::string g, const T elts);
-std::vector<std::string> split(std::string st, const std::string sp);
-template <typename T> void extend(std::vector<T>& l, const std::vector<T> src);
-
-}
-
-/* simple re-implementation of some python builtin functions */
-template<typename T>
-bool all(const T elts){for(auto e: elts) if(!e) return false; return true;}
-
-template<typename T>
-bool any(const T elts){for(auto e: elts) if(e) return true; return false;}
-
-template<typename T>
-T sum(const std::vector<T> elts){T s{0}; for(auto e: elts) s += e; return s;}
-
-template<typename T>
-std::string str(const T n){return std::to_string(n);}
-
-template<>
-std::string str(const std::string s){return s;}
-
-template<>
-std::string str(const char *s){return std::string{s};}
-
-template<>
-std::string str(const char s){return std::string{s};}
-
-template<>
-std::string str(const bool b){return b?"True":"False";}
-
-template<typename VT>
-std::string str(std::vector<VT> vec){return "["+py::join(", ", vec)+"]";}
-
-template<typename T>
-void print(const T v){std::cout << str(v) << std::endl;}
-
-template<typename T>
-unsigned long len(const T c){throw std::runtime_error("len() not supported");}
-
-template<>
-unsigned long len(const std::string s){return s.length();}
-
-template<typename VT>
-unsigned long len(const std::vector<VT> v){return v.size();}
-
-template<typename T>
-std::string operator * (const T& lhs, const std::string rhs){
-    std::stringstream r;
-    for(auto i=0; i<lhs; ++i) r<<rhs; return r.str();
-}
-
-template <typename T>
-std::string operator * (const std::string lhs, const T& rhs){
-    return rhs * lhs;
-}
-
-template <typename T>
-std::vector<T> operator + (const std::vector<T> &lhs, const std::vector<T> &rhs){
-    std::vector<T> r{};
-    py::extend(r, lhs);
-    py::extend(r, rhs);
-    return r;
-}
-
-template <typename T>
-T abs(T n){return (n<0)?(-n):(n);}
-
-template<typename T, typename VT>
-std::vector<VT> operator * (const T& n, const std::vector<VT> v){
-    std::vector<VT> r{};
-    r.reserve(v.size() * n);
-    for (auto i=0; i<n; ++i) py::extend(r, v); return r;
-}
-
-template<typename T, typename VT>
-std::vector<VT> operator * (const std::vector<VT> v, const T& n){return n * v;}
-
-/* simple re-implementation of some python builtin types' methods */
-namespace py {
-
-template<typename T>
-std::string join(const std::string g, const T elts){
-    std::stringstream r; bool c{0};
-    for (auto e: elts){if(c)r<<g;r<<str(e);c=1;} return r.str();
-}
-
-std::vector<std::string> split(std::string st, const std::string sp){
-    std::vector<std::string> r{}; int end;
-    while(true){
-        end = st.find(sp);
-        if(end == std::string::npos){r.push_back(st);break;}
-        r.push_back(st.substr(0, end));
-        st = st.substr(end + sp.size());
-    }
-    return r;
-}
-
-template <typename T>
-void append(std::vector<T>& l, const T e){l.push_back(e);}
-
-template <typename T>
-void extend(std::vector<T>& l, const std::vector<T> src){std::copy(src.begin(), src.end(), std::back_inserter(l));}
-
-}
-
-"""
+_cpp_functions = open('cboost.hpp').read()
 
 def disable():
     global _disabled
@@ -476,7 +360,7 @@ class Call(expr):
             func = convert(call.func)
             args = convert_list(call.args)
         elif type(call.func) == ast.Attribute: # something.join()
-            func = Name(id='py::'+call.func.attr)
+            func = Name(id='py::methods::'+call.func.attr)
             args = [convert(call.func.value), *convert_list(call.args)]
         else:
             raise Exception("Unknown call: "+ast.dump(call))
@@ -643,8 +527,9 @@ class For(stmt):
         if len(fo.orelse):
             raise Exception("For loops with strange 'else:' block are not supported yet")
 
-        if type(fo.iter) == ast.Call and type(fo.iter.func) == ast.Name and fo.iter.func.id == 'range':
-            return ForCStyle._from_py(fo)
+        if False: # Convert for x in range(): to C-style for(;;)
+            if type(fo.iter) == ast.Call and type(fo.iter.func) == ast.Name and fo.iter.func.id == 'range':
+                return ForCStyle._from_py(fo)
 
         target = convert(fo.target)
         iter = convert(fo.iter)
@@ -1251,7 +1136,7 @@ def _load_so():
             f.write(cpp_id)
 
         # TODO: compiler, options, flags, etc
-        gcc_cmd = f'g++ -fPIC -Werror -O2 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
+        gcc_cmd = f'g++ -fPIC -Werror -O3 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
         gcc_ret = os.system(gcc_cmd)
         if gcc_ret != 0:
             os.unlink(fn_py_hash)
