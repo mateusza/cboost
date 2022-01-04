@@ -95,6 +95,7 @@ T abs(T n){return (n<0)?(-n):(n);}
 template<typename T, typename VT>
 std::vector<VT> operator * (const T& n, const std::vector<VT> v){
     std::vector<VT> r{};
+    r.reserve(v.size() * n);
     for (auto i=0; i<n; ++i) py::extend(r, v); return r;
 }
 
@@ -597,6 +598,11 @@ class Continue(stmt):
     def _render(self, curr_indent: str ='',  semicolon=True, **kwargs):
         return f'{curr_indent}continue' + (';' if semicolon else '')
 
+class Div(operator):
+    """
+    cboost Div
+    """
+    r: str = '/'
 
 class Eq(cmpop):
     r: str = '=='
@@ -1130,6 +1136,7 @@ __class_conversions: dict = {
     ast.Compare:    Compare,
     ast.Constant:   Constant,
     ast.Continue:   Continue,
+    ast.Div:        Div,
     ast.Eq:         Eq,
     ast.Expr:       Expr,
     ast.For:        For,
