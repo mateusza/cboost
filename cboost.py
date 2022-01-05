@@ -63,11 +63,13 @@ class AST:
     """
     cboost Abstract Syntax Tree element
     """
-    def _render(self, curr_indent: str='', **kwargs) -> str:
+
+    @add_indent
+    def _render(self, **kwargs) -> str:
         """
         Render element into C/C++ source code
         """
-        return f'{curr_indent}/* AST {self} */'
+        return f'/* AST {self} */'
 
     @classmethod
     def _from_py(cls, ast_element: ast.AST):
@@ -128,7 +130,7 @@ class arguments(AST):
         return cls(args=args, posonlyargs=posonlyargs, kwonlyargs=kwonlyargs, kw_defaults=kw_defaults, defaults=defaults)
 
     def _render(self, **kwargs):
-        return ', '.join(render(a) for a in self.args)
+        return render_list(self.args)
 
 class boolop(AST):
     """
@@ -213,18 +215,15 @@ class AnnAssign(stmt):
         """
         target = convert(a.target)
         simple = a.simple
-
         value = convert(a.value)
-        if type(a.annotation) == ast.Constant:
-            annotation = Name(id=str(a.annotation.value))
-        else:
-            annotation = Name(id=convert_type(a.annotation.id))
-
+        annotation_id = str(a.annotation.value) if type(a.annotation) == ast.Constant else convert_type(a.annotation.id)
+        annotation = Name(id=annotation_id)
         return cls(target=target, annotation=annotation, value=value, simple=simple)
 
     @add_semicolon
-    def _render(self, curr_indent: str = '', **kwargs):
-        return curr_indent + render(self.annotation) + ' ' + render(self.target) + ' = ' + render(self.value, brackets=False)
+    @add_indent
+    def _render(self, **kwargs):
+        return render(self.annotation) + ' ' + render(self.target) + ' = ' + render(self.value, brackets=False)
 
 
 class Assign(stmt):
@@ -248,10 +247,9 @@ class Assign(stmt):
         return cls(targets=targets, value=value)
 
     @add_semicolon
-    def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
-        return (curr_indent 
-            + render(self.targets[0], brackets=False)
-            + ' = ' + render(self.value, brackets=False))
+    @add_indent
+    def _render(self, **kwargs):
+        return render(self.targets[0], brackets=False) + ' = ' + render(self.value, brackets=False)
 
 class Attribute(expr):
     """Attribute"""
@@ -278,15 +276,15 @@ class AugAssign(stmt):
         """
         Convert Python AST AugAssign
         """
-        return cls(
-            target=convert(a.target),
-            op=convert(a.op),
-            value=convert(a.value)
-        )
+        target = convert(a.target)
+        op = convert(a.op)
+        value = convert(a.value)
+        return cls(target=target, op=op, value=value)
 
     @add_semicolon
-    def _render(self, curr_indent: str = '', **kwargs):
-        return curr_indent + render(self.target) + ' ' + render(self.op) + '= ' + render(self.value, brackets=False)
+    @add_indent
+    def _render(self, **kwargs):
+        return render(self.target) + ' ' + render(self.op) + '= ' + render(self.value, brackets=False)
 
 class BinOp(expr):
     op: expr
@@ -298,7 +296,7 @@ class BinOp(expr):
 
     @add_brackets
     def _render(self, **kwargs):
-        return (' ' + render(self.op) + ' ').join(render(v) for v in self.values)
+        return render_list(self.values, separator=' ' + render(self.op) + ' ', brackets=False)
 
     @classmethod
     def _from_py(cls, bo: ast.BinOp):
@@ -333,8 +331,8 @@ class BoolOp(expr):
         return cls(op=op, values=values)
 
     @add_brackets
-    def _render(self, brackets: bool = True, **kwargs):
-        return (' ' + render(self.op) + ' ').join(render(v) for v in self.values)
+    def _render(self, **kwargs):
+        return render_list(self.values, separator=' ' + render(self.op) + ' ', brackets=False)
 
 class Break(stmt):
     def __init__(self):
@@ -345,8 +343,9 @@ class Break(stmt):
         return cls()
 
     @add_semicolon
-    def _render(self, curr_indent: str ='',  semicolon=True, **kwargs):
-        return f'{curr_indent}break'
+    @add_indent
+    def _render(self, **kwargs):
+        return 'break'
 
 class Call(expr):
     """
@@ -370,10 +369,11 @@ class Call(expr):
             func = convert(call.func)
             args = convert_list(call.args)
         elif type(call.func) == ast.Attribute: # something.join()
-            func = Name(id='py::methods::'+call.func.attr)
+            funcname = 'py::methods::' + call.func.attr
+            func = Name(id=funcname)
             args = [convert(call.func.value), *convert_list(call.args)]
         else:
-            raise Exception("Unknown call: "+ast.dump(call))
+            raise Exception("Unknown call: " + ast.dump(call))
         return cls(func=func, args=args)
 
     def _render(self, **kwargs):
@@ -435,7 +435,7 @@ class Compare(expr):
 
     @add_brackets
     def _render(self, **kwargs):
-        return ' '.join([render(self.left), render(self.ops[0]), render(self.comparators[0])])
+        return render(self.left) + ' ' + render(self.ops[0]) + ' ' + render(self.comparators[0])
 
 class Constant(expr):
     """
@@ -480,8 +480,9 @@ class Continue(stmt):
         return cls()
 
     @add_semicolon
-    def _render(self, curr_indent: str ='', **kwargs):
-        return f'{curr_indent}continue'
+    @add_indent
+    def _render(self, **kwargs):
+        return 'continue'
 
 class Div(operator):
     """
@@ -509,8 +510,9 @@ class Expr(stmt):
         return cls(value=value)
 
     @add_semicolon
-    def _render(self, curr_indent: str = '', **kwargs):
-        return curr_indent + render(self.value, brackets=False)
+    @add_indent
+    def _render(self, **kwargs):
+        return render(self.value, brackets=False)
 
 class For(stmt):
     """
@@ -609,21 +611,21 @@ class FunctionDef(stmt):
 
     @classmethod
     def _from_py(cls, fd: ast.FunctionDef):
-        return cls(**{
-            'name': fd.name,
-            'args': convert(fd.args),
-            'body': convert_list(fd.body),
-            'decorator_list': convert_list(fd.decorator_list),
-            'returns': convert(fd.returns)
-        })
+        
+        name = fd.name
+        args = convert(fd.args)
+        body = convert_list(fd.body)
+        decorator_list = convert_list(fd.decorator_list)
+        returns = convert(fd.returns)
+    
+        return cls(name=name, args=args, body=body, decorator_list=decorator_list, returns=returns)
 
     def _render_declaration(self):
         try:
             return_type = convert_type(self.returns.id)
         except AttributeError:
             return_type = 'void'
-#            raise Exception('Functions without return type annotations are not supported')
-        return return_type + ' ' + self.name + '(' + render(self.args) + ')'
+        return return_type + ' ' + self.name + render(self.args)
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         declaration = self._render_declaration()
@@ -634,7 +636,6 @@ class FunctionDef(stmt):
             curr_indent + '}',
             ''
         ])
-
 
 class Gt(cmpop):
     r: str = '>'
@@ -653,8 +654,11 @@ class IncrDecr(expr):
     def _render(self, **kwargs):
         target = render(self.target)
         op = render(self.op)*2
-        v = [target, op] if self.post else [op, target]
-        return ''.join(v)
+        v = [target, op]
+        if not self.post:
+            v.reverse()
+        a, b = v
+        return a + b
 
 class In(cmpop):
     """This shouldn't be used at all as C++ doesn't have direct syntactical equivalent"""
@@ -677,8 +681,7 @@ class If(stmt):
         test = convert(the_if.test)
         body = convert_list(the_if.body)
         orelse = convert_list(the_if.orelse)
-        i = cls(test=test, body=body, orelse=orelse)
-        return i
+        return cls(test=test, body=body, orelse=orelse)
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
@@ -720,8 +723,9 @@ class JoinedStr(expr):
     def __init__(self, values: list = []):
         self.values = values
     
-    def _render(self, brackets: bool = True, **kwargs):
-        return ' + '.join([render(v) for v in self.values])
+    @add_brackets
+    def _render(self, **kwargs):
+        return render_list(self.values, separator=' + ', brackets=False)
 
     @classmethod
     def _from_py(cls, js: ast.JoinedStr()):
@@ -846,8 +850,9 @@ class Return(stmt):
         return cls(value=value)
 
     @add_semicolon
-    def _render(self, curr_indent: str = '', **kwargs):
-        return curr_indent + 'return ' + render(self.value, brackets=False)
+    @add_indent
+    def _render(self, **kwargs):
+        return 'return ' + render(self.value, brackets=False)
 
 class Std_Vector(expr):
     elts: list
@@ -862,8 +867,8 @@ class Std_Vector(expr):
         return cls(elts=elts)
 
     def _render(self, **kwargs):
-        first_elt = render(self.elts[0])
-        return self.cpp_type + '<decltype(' + first_elt + ')>' + '{' + ', '.join(render(e) for e in self.elts) + '}'
+        first_elt = self.elts[0]
+        return self.cpp_type + '<decltype(' + render(first_elt) + ')>' + '{' + render_list(self.elts, brackets=False) + '}'
 
 class Sub(operator):
     """
@@ -887,7 +892,7 @@ class Subscript(expr):
 
     @add_brackets
     def _render(self, **kwargs):
-        return render(self.value) + '[' + render(self.slice) + ']'
+        return render(self.value) + '[' + render(self.slice, brackets=False) + ']'
 
 class UnaryOp(expr):
     """
@@ -1068,6 +1073,9 @@ __type_conversions: dict = {
 }
 
 def make_cpp(func: object) -> object:
+    """
+        The Holy Wrapper
+    """
     if _is_disabled():
         return func
 
