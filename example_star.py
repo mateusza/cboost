@@ -13,8 +13,10 @@ def test_lists():
     lol: 'auto' = 123
     lista3: 'auto' = [0,1,2,*lista1,lol,99,*lista2,*[99999,1000000]]
     lista3[0] = 1111
+    lista4: 'auto' = [*lista1]
+    lista1[0] = 5555
 
-    print('-'.join(lista3))
+    print('-'.join(lista4))
 
 if __name__ == '__main__':
     import sys
