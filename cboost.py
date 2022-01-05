@@ -13,7 +13,7 @@ _boosted_functions: dict = {}
 _boosted_py_src: str = ''
 _disabled = False
 _cache = True
-_compiler = 'g++-10'
+_compiler = 'g++'
 
 _cpp_functions = open('cboost.hpp').read()
 
@@ -22,7 +22,7 @@ def disable():
     _disabled = True
 
 @functools.cache
-def _is_disabled():
+def _is_disabled() -> bool:
     global _disabled
     if _disabled:
         return True
@@ -32,7 +32,7 @@ def _is_disabled():
     return False
 
 @functools.cache
-def _use_cache():
+def _use_cache() -> bool:
     global _cache
     if _cache == False:
         return False
@@ -41,11 +41,29 @@ def _use_cache():
         return False
     return True
 
+def add_brackets(render_method):
+    def fn(what, brackets: bool=True, **kwargs):
+        return ('(' if brackets else '') + render_method(what, **kwargs) +  (')' if brackets else '')
+    return fn
+
+def add_semicolon(render_method):
+    def fn(what, semicolon: bool=True, **kwargs):
+        return render_method(what, **kwargs) +  (';' if semicolon else '')
+    return fn
+
+def add_indent(render_method):
+    def fn(what, curr_indent: str='', **kwargs):
+        return curr_indent + render_method(what, **kwargs)
+    return fn
+
+def quote_string_literal(s: str):
+    return s.replace('"', '\\"')
+
 class AST:
     """
     cboost Abstract Syntax Tree element
     """
-    def _render(self, indent: int = 4, curr_indent: str='', next_indent: str='', **kwargs):
+    def _render(self, curr_indent: str='', **kwargs) -> str:
         """
         Render element into C/C++ source code
         """
@@ -204,8 +222,9 @@ class AnnAssign(stmt):
 
         return cls(target=target, annotation=annotation, value=value, simple=simple)
 
-    def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
-        return curr_indent + render(self.annotation) + ' ' + render(self.target) + ' = ' + render(self.value, brackets=False) + (';' if semicolon else '')
+    @add_semicolon
+    def _render(self, curr_indent: str = '', **kwargs):
+        return curr_indent + render(self.annotation) + ' ' + render(self.target) + ' = ' + render(self.value, brackets=False)
 
 
 class Assign(stmt):
@@ -228,11 +247,11 @@ class Assign(stmt):
         value = convert(assign.value)
         return cls(targets=targets, value=value)
 
+    @add_semicolon
     def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
         return (curr_indent 
             + render(self.targets[0], brackets=False)
-            + ' = ' + render(self.value, brackets=False)
-            + (';' if semicolon else ''))
+            + ' = ' + render(self.value, brackets=False))
 
 class Attribute(expr):
     """Attribute"""
@@ -265,8 +284,9 @@ class AugAssign(stmt):
             value=convert(a.value)
         )
 
-    def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
-        return curr_indent + render(self.target) + ' ' + render(self.op) + '= ' + render(self.value, brackets=False) + (';' if semicolon else '')
+    @add_semicolon
+    def _render(self, curr_indent: str = '', **kwargs):
+        return curr_indent + render(self.target) + ' ' + render(self.op) + '= ' + render(self.value, brackets=False)
 
 class BinOp(expr):
     op: expr
@@ -276,12 +296,9 @@ class BinOp(expr):
         self.op = op
         self.values = values
 
-    def _render(self, brackets: bool = True, **kwargs):
-        return (
-            ('(' if brackets else '')
-            + (' ' + render(self.op) + ' ').join(render(v) for v in self.values)
-            + (')' if brackets else '')
-        )
+    @add_brackets
+    def _render(self, **kwargs):
+        return (' ' + render(self.op) + ' ').join(render(v) for v in self.values)
 
     @classmethod
     def _from_py(cls, bo: ast.BinOp):
@@ -315,12 +332,9 @@ class BoolOp(expr):
         values = convert_list(bo.values)
         return cls(op=op, values=values)
 
+    @add_brackets
     def _render(self, brackets: bool = True, **kwargs):
-        return (
-            ('(' if brackets else '')
-            + (' ' + render(self.op) + ' ').join(render(v) for v in self.values)
-            + (')' if brackets else '')
-        )
+        return (' ' + render(self.op) + ' ').join(render(v) for v in self.values)
 
 class Break(stmt):
     def __init__(self):
@@ -330,8 +344,9 @@ class Break(stmt):
     def _from_py(cls, b=None):
         return cls()
 
+    @add_semicolon
     def _render(self, curr_indent: str ='',  semicolon=True, **kwargs):
-        return f'{curr_indent}break' + (';' if semicolon else '')
+        return f'{curr_indent}break'
 
 class Call(expr):
     """
@@ -362,19 +377,14 @@ class Call(expr):
         return cls(func=func, args=args)
 
     def _render(self, **kwargs):
-        return (
-            render(self.func)
-            + '('
-            + ', '.join(render(a, brackets=False) for a in self.args)
-            + ')'
-        )
+        return render(self.func) + render_list(self.args)
 
 class Compare(expr):
     """
     cboost AST compare
     """
     # TODO: 
-    # Python allow for multiple comparisons in single expression:
+    # Python allows for multiple comparisons in a single expression:
     # a < b == b2 > c
     # effectively this should be considered equal to:
     # (a < b) && (b == b2) && (b2 > c)
@@ -423,14 +433,9 @@ class Compare(expr):
 
         return cls(left=left, ops=ops, comparators=comparators)
 
-    def _render(self, brackets: bool = True, **kwargs):
-        return (
-            ('(' if brackets else '')
-            + render(self.left) + ' '
-            + render(self.ops[0]) + ' '
-            + render(self.comparators[0])
-            + (')' if brackets else '')
-        )
+    @add_brackets
+    def _render(self, **kwargs):
+        return ' '.join([render(self.left), render(self.ops[0]), render(self.comparators[0])])
 
 class Constant(expr):
     """
@@ -464,7 +469,7 @@ class Constant(expr):
             case int(x)|float(x):
                 return str(x)
             case str(x):
-                return 'std::string{' + '"'+x.replace('"', '\\"')+'"' + '}'
+                return 'std::string{"'+quote_string_literal(x)+'"}'
 
 class Continue(stmt):
     def __init__(self):
@@ -474,8 +479,9 @@ class Continue(stmt):
     def _from_py(cls, c=None):
         return cls()
 
-    def _render(self, curr_indent: str ='',  semicolon=True, **kwargs):
-        return f'{curr_indent}continue' + (';' if semicolon else '')
+    @add_semicolon
+    def _render(self, curr_indent: str ='', **kwargs):
+        return f'{curr_indent}continue'
 
 class Div(operator):
     """
@@ -502,8 +508,9 @@ class Expr(stmt):
         value = convert(e.value)
         return cls(value=value)
 
-    def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
-        return curr_indent + render(self.value, brackets=False) + (';' if semicolon else '')
+    @add_semicolon
+    def _render(self, curr_indent: str = '', **kwargs):
+        return curr_indent + render(self.value, brackets=False)
 
 class For(stmt):
     """
@@ -534,7 +541,7 @@ class For(stmt):
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
-            curr_indent + 'for (auto ' + render(self.target) + ': ' + render(self.iter) + '){',
+            curr_indent + 'for (auto ' + render(self.target) + ' : ' + render(self.iter) + ') {',
             *[render(b, indent, next_indent) for b in self.body],
             curr_indent + '}'
         ])
@@ -581,7 +588,7 @@ class ForCStyle(stmt):
             curr_indent + 'for ('
                 + render(self.init, semicolon=False) + '; '
                 + render(self.cond, brackets=False) + '; '
-                + render(self.incr, semicolon=False, brackets=False) + '){',
+                + render(self.incr, semicolon=False, brackets=False) + ') {',
             *[render(b, indent, next_indent) for b in self.body],
             curr_indent + '}'
         ])
@@ -642,15 +649,12 @@ class IncrDecr(expr):
         self.op = op
         self.post = post
 
-    def _render(self, brackets=True, **kwargs):
+    @add_brackets
+    def _render(self, **kwargs):
         target = render(self.target)
         op = render(self.op)*2
         v = [target, op] if self.post else [op, target]
-        return (
-            ('(' if brackets else '')
-            + ''.join(v)
-            + (')' if brackets else '')
-        )
+        return ''.join(v)
 
 class In(cmpop):
     """This shouldn't be used at all as C++ doesn't have direct syntactical equivalent"""
@@ -678,7 +682,7 @@ class If(stmt):
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
-            curr_indent + 'if (' + render(self.test, brackets=False) + '){',
+            curr_indent + 'if (' + render(self.test, brackets=False) + ') {',
             *[render(b, indent, next_indent) for b in self.body],
             curr_indent + '}',
             *(
@@ -706,12 +710,9 @@ class IfExp(expr):
         orelse = convert(ife.orelse)
         return cls(test=test, body=body, orelse=orelse)
 
-    def _render(self, brackets=True, **kwargs):
-        return (
-            ('(' if brackets else '') 
-            + render(self.test) + ' ? ' + render(self.body) + ' : ' + render(self.orelse)
-            + (')' if brackets else '')
-        )
+    @add_brackets
+    def _render(self, **kwargs):
+        return render(self.test) + ' ? ' + render(self.body) + ' : ' + render(self.orelse)
 
 class JoinedStr(expr):
     values: list
@@ -824,7 +825,7 @@ class Name(expr):
         id = name.id
         return cls(id=id)
 
-    def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
+    def _render(self, **kwargs):
         return self.id
 
 class NotEq(cmpop):
@@ -844,8 +845,9 @@ class Return(stmt):
         value = convert(r.value)
         return cls(value=value)
 
+    @add_semicolon
     def _render(self, curr_indent: str = '', **kwargs):
-        return curr_indent + 'return ' + render(self.value, brackets=False) + ';'
+        return curr_indent + 'return ' + render(self.value, brackets=False)
 
 class Std_Vector(expr):
     elts: list
@@ -883,8 +885,9 @@ class Subscript(expr):
         slice = convert(ss.slice)
         return cls(value=value, slice=slice)
 
-    def _render(self, brackets=True, **kwargs):
-        return ('(' if brackets else '') + render(self.value) + '[' + render(self.slice) + ']' + (')' if brackets else '')
+    @add_brackets
+    def _render(self, **kwargs):
+        return render(self.value) + '[' + render(self.slice) + ']'
 
 class UnaryOp(expr):
     """
@@ -899,19 +902,13 @@ class UnaryOp(expr):
 
     @classmethod
     def _from_py(cls, uo: ast.UnaryOp):
-        return cls(
-            op = convert(uo.op),
-            operand = convert(uo.operand)
-        )
+        op = convert(uo.op)
+        operand = convert(uo.operand)
+        return cls(op=op, operand=operand)
 
-    def _render(self, brackets: bool = True, **kwargs):
-        return (
-            ('(' if brackets else '')
-            + render(self.op)
-            + ' '
-            + render(self.operand)
-            + (')' if brackets else '')
-        )
+    @add_brackets
+    def _render(self, **kwargs):
+        return render(self.op) + ' ' + render(self.operand)
 
 class USub(operator):
     """
@@ -939,7 +936,7 @@ class While(stmt):
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         return '\n'.join([
-            curr_indent + 'while (' + render(self.test, brackets=False) + '){',
+            curr_indent + 'while (' + render(self.test, brackets=False) + ') {',
             *[render(b, indent, next_indent) for b in self.body],
             curr_indent + '}'
         ])
@@ -986,6 +983,10 @@ def dump(obj: AST, indent: int = 0, __current_indent: int = 0) -> str:
 
 def render(obj: AST, indent: int = 4, curr_indent: str = '', brackets: bool = True, semicolon: bool = True) -> str:
     return obj._render(indent=indent, curr_indent=curr_indent, next_indent=curr_indent+indent*' ', brackets=brackets, semicolon=semicolon)
+
+@add_brackets
+def render_list(elts: list, separator: str=', ', **kwargs):
+    return separator.join(render(e, brackets=False) for e in elts)
 
 def convert(py_ast_object: ast.AST) -> AST:
     """
