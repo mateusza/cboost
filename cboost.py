@@ -229,7 +229,10 @@ class Assign(stmt):
         return cls(targets=targets, value=value)
 
     def _render(self, curr_indent: str = '', semicolon = True, **kwargs):
-        return curr_indent + render(self.targets[0]) + ' = ' + render(self.value, brackets=False) + (';' if semicolon else '')
+        return (curr_indent 
+            + render(self.targets[0], brackets=False)
+            + ' = ' + render(self.value, brackets=False)
+            + (';' if semicolon else ''))
 
 class Attribute(expr):
     """Attribute"""
