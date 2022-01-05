@@ -4,12 +4,14 @@
 
 Everything is buggy. You are lucky if it worked with your code.
 
-- 
+- cboost handles lists in a fancy way, and sometimes does the opposite of what python does:
+    1. `a = [1, 2, 3, 4, 5]; b = a;` this will make another **copy** of the list (vector)
+    2. `a = [1, 2, 3, 4, 5]; b = [*a];` this will be translated to `b = a`, which again is not what we need after #1 is fixed.
 
 ## Currently supported:
 - `if` condition
 - `while` loop
-- `for` loop only when iterating over `range()` in incrementing order
+- `for` loop with either `range()` or a list
 - `int` (`long`) as return and argument type only
 - types:
     - `str` (`std::string`)
@@ -23,7 +25,8 @@ Everything is buggy. You are lucky if it worked with your code.
     - `.join()`
     - `.split()`
 - some arithmetic and boolean operators
-- only variables with explicitly given types (`a: int = 7`)
+- `list` and `str` multiplication
+- only variables with explicitly given types (`a: int = 7`) or `auto`
 
 ## Todo:
 - argument type mapping and support
@@ -33,7 +36,13 @@ Everything is buggy. You are lucky if it worked with your code.
 - python functions like:
  - `min()`
  - `max()`
-- python list expressions `[x for x in ...]`
+- python list expressions `[x for x in ...]` etc
 - classes and methods
 - ability to select compiler, flags etc
 
+## Things that accidentially work better
+
+**cboost** does some things that python doesn't. It's not yet decided whether we will break these in future or leave as a feature.
+
+- `", ".join([1, 3, 4])` automatically converts list values to strings, while python raises `TypeError: sequence item 0: expected str instance, int found`
+- `sum(["aaa", "bbb"])` concatenates strings, while python raises `TypeError: unsupported operand type(s) for +: 'int' and 'str'`
