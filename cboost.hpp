@@ -245,10 +245,10 @@ struct range {
     iterator begin() const {
         auto pos = ((step < 0 && start < stop) || (step > 0 && stop < start))
             ? this->stop : this->start;
-        return iterator(pos, this->step, this->stop);
+        return {pos, this->step, this->stop};
     }
     iterator end() const {
-        return iterator(this->stop, this->step, this->stop);
+        return {this->stop, this->step, this->stop};
     }
     explicit range(const T stop):
         range{0, stop} {};
