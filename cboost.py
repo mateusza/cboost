@@ -13,6 +13,7 @@ _boosted_functions: dict = {}
 _boosted_py_src: str = ''
 _disabled = False
 _cache = True
+_compiler = 'g++-10'
 
 _cpp_functions = open('cboost.hpp').read()
 
@@ -265,33 +266,25 @@ class AugAssign(stmt):
         return curr_indent + render(self.target) + ' ' + render(self.op) + '= ' + render(self.value, brackets=False) + (';' if semicolon else '')
 
 class BinOp(expr):
-    """
-    cboost BinOp
-    """
-    left: expr
-    right: expr
     op: expr
+    values: list
 
-    def __init__(self, left: expr = None, op: expr = None, right: expr = None):
-        self.left = left
+    def __init__(self, op: expr = None, values: list = []):
         self.op = op
-        self.right = right
-
-    @classmethod
-    def _from_py(cls, bo: ast.BinOp):
-        left = convert(bo.left)
-        op = convert(bo.op)
-        right = convert(bo.right)
-        return cls(left=left, op=op, right=right)
+        self.values = values
 
     def _render(self, brackets: bool = True, **kwargs):
         return (
             ('(' if brackets else '')
-            + render(self.left) + ' '
-            + render(self.op) + ' '
-            + render(self.right)
+            + (' ' + render(self.op) + ' ').join(render(v) for v in self.values)
             + (')' if brackets else '')
         )
+
+    @classmethod
+    def _from_py(cls, bo: ast.BinOp):
+        values = [convert(bo.left), convert(bo.right)]
+        op = convert(bo.op)
+        return cls(op=op, values=values)
 
 class BitAnd(operator):
     r: str = '&'
@@ -314,11 +307,10 @@ class BoolOp(expr):
         self.values = values
 
     @classmethod
-    def _from_py(cls, bo: ast.BinOp):
-        return cls(**{
-            'op': convert(bo.op),
-            'values': convert_list(bo.values)
-        })
+    def _from_py(cls, bo: ast.BoolOp):
+        op = convert(bo.op)
+        values = convert_list(bo.values)
+        return cls(op=op, values=values)
 
     def _render(self, brackets: bool = True, **kwargs):
         return (
@@ -749,6 +741,21 @@ class List(expr):
 
     @classmethod
     def _from_py(cls, the_list: ast.List):
+        if any(type(e) == ast.Starred for e in the_list.elts):
+            sublists = []
+            queue = [*the_list.elts]
+            while True:
+                spos = next(k for k, v in enumerate(queue) if type(v) == ast.Starred)
+                prefix = queue[0:spos]
+                if len(prefix):
+                    sublists.append(Std_Vector(elts=convert_list(prefix)))
+                sublists.append(convert(queue[spos].value))
+                queue = queue[spos+1:]
+                if len(queue) == 0:
+                    break
+            s = BinOp(op=Add(), values=sublists)
+            return s
+
         if len(the_list.elts) == 0:
             raise Exception("Empty list literals are not supported as we cannot deduce the type")
         return Std_Vector._from_py_list(the_list)
@@ -1136,7 +1143,8 @@ def _load_so():
             f.write(cpp_id)
 
         # TODO: compiler, options, flags, etc
-        gcc_cmd = f'g++ -fPIC -Werror -O3 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
+        global _compiler
+        gcc_cmd = f'{_compiler} -fPIC -Werror -O2 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
         gcc_ret = os.system(gcc_cmd)
         if gcc_ret != 0:
             os.unlink(fn_py_hash)
