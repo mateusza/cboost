@@ -6,7 +6,6 @@ Everything is buggy. You are lucky if it worked with your code.
 
 - cboost handles lists in a fancy way, and sometimes does the opposite of what python does:
     1. `a = [1, 2, 3, 4, 5]; b = a;` this will make another **copy** of the list (vector)
-    2. `a = [1, 2, 3, 4, 5]; b = [*a];` this will be translated to `b = a`, which again is not what we need after #1 is fixed.
 
 ## Currently supported:
 - `if` condition
