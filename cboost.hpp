@@ -19,7 +19,8 @@ namespace methods {
 
 template <typename T> std::string join(const std::string g, const T elts);
 std::vector<std::string> split(std::string st, const std::string sp);
-template <typename T> void extend(std::vector<T>&, const std::vector<T>);
+template <typename T> void extend(std::vector<T>&, const std::vector<T>&);
+template <typename T, typename TT> void extend(std::vector<T>&, const TT&);
 
 }  // namespace methods
 
@@ -184,7 +185,7 @@ namespace operators {
     std::vector<T> starred(const py::classes::range<T>& ra) {
         std::vector<T> r{};
         r.reserve(ra.length());
-        for (auto i : ra){
+        for (auto i : ra) {
             r.push_back(i);
         }
         return r;
@@ -201,7 +202,7 @@ namespace operators {
     std::vector<std::string> starred(const std::string& s) {
         std::vector<std::string> r{};
         r.reserve(s.size());
-        for (auto c : s){
+        for (auto c : s) {
             r.push_back(std::string{c});
         }
         return r;
@@ -244,8 +245,15 @@ void append(std::vector<T>& l, const T e) { // NOLINT
 }
 
 template <typename T>
-void extend(std::vector<T>& l, const std::vector<T> src) { // NOLINT
+void extend(std::vector<T>& l, const std::vector<T>& src) { // NOLINT
     std::copy(src.begin(), src.end(), std::back_inserter(l));
+}
+
+template <typename T, typename TT>
+void extend(std::vector<T>& l, const TT& src) { // NOLINT
+    for (auto e : src) {
+        l.push_back(static_cast<T>(e));
+    }
 }
 
 }  // namespace methods
