@@ -178,6 +178,37 @@ py::classes::range<T> range(T a, T2 b, T3 c) {
 /* simple re-implementation of some python builtin types' methods */
 namespace py {
 
+namespace operators {
+
+    template <typename T>
+    std::vector<T> starred(const py::classes::range<T>& ra) {
+        std::vector<T> r{};
+        r.reserve(ra.length());
+        for (auto i : ra){
+            r.push_back(i);
+        }
+        return r;
+    }
+
+    template <typename T>
+    std::vector<T> starred(const std::vector<T>& sv) {
+        std::vector<T> r{};
+        r.reserve(sv.size());
+        std::copy(sv.begin(), sv.end(), std::back_inserter(r));
+        return r;
+    }
+
+    std::vector<std::string> starred(const std::string& s) {
+        std::vector<std::string> r{};
+        r.reserve(s.size());
+        for (auto c : s){
+            r.push_back(std::string{c});
+        }
+        return r;
+    }
+
+}  // namespace operators
+
 namespace methods {
 
 template<typename T>

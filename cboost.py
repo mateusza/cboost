@@ -731,11 +731,15 @@ class List(expr):
             sublists = []
             queue = [*the_list.elts]
             while True:
-                spos = next(k for k, v in enumerate(queue) if type(v) == ast.Starred)
+                try:
+                    spos = next(k for k, v in enumerate(queue) if type(v) == ast.Starred)
+                except StopIteration:
+                    sublists.append(Std_Vector(elts=convert_list(queue)))
+                    break
                 prefix = queue[0:spos]
                 if len(prefix):
                     sublists.append(Std_Vector(elts=convert_list(prefix)))
-                sublists.append(convert(queue[spos].value))
+                sublists.append(convert(queue[spos]))
                 queue = queue[spos+1:]
                 if len(queue) == 0:
                     break
@@ -848,10 +852,23 @@ class Std_Vector(expr):
         first_elt = self.elts[0]
         return self.cpp_type + '<decltype(' + render(first_elt) + ')>' + '{' + render_list(self.elts, brackets=False) + '}'
 
+class Starred(expr):
+    """Starred"""
+    value: expr
+
+    def __init__(self, value: expr=None):
+        self.value = value
+
+    @classmethod
+    def _from_py(cls, st):
+        value = convert(st.value)
+        return cls(value=value)
+
+    def _render(self, **kwargs):
+        return 'py::operators::starred(' + render(self.value, brackets=False) + ')'
+
 class Sub(operator):
-    """
-    cboost sub
-    """
+    """cboost sub"""
     r: str = '-'
 
 class Subscript(expr):
@@ -1043,6 +1060,7 @@ __class_conversions: dict = {
     ast.Name:       Name,
     ast.Or:         Or,
     ast.Return:     Return,
+    ast.Starred:    Starred,
     ast.Sub:        Sub,
     ast.Subscript:  Subscript,
     ast.UnaryOp:    UnaryOp,
