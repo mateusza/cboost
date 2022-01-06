@@ -531,7 +531,7 @@ class For(stmt):
         if len(fo.orelse):
             raise Exception("For loops with strange 'else:' block are not supported yet")
 
-        if False: # Convert for x in range(): to C-style for(;;)
+        if 1: # Convert for x in range(): to C-style for(;;)
             if type(fo.iter) == ast.Call and type(fo.iter.func) == ast.Name and fo.iter.func.id == 'range':
                 return ForCStyle._from_py(fo)
 
@@ -542,11 +542,8 @@ class For(stmt):
         return cls(target=target, iter=iter, body=body)
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
-        return '\n'.join([
-            curr_indent + 'for (auto ' + render(self.target) + ' : ' + render(self.iter) + ') {',
-            *[render(b, indent, next_indent) for b in self.body],
-            curr_indent + '}'
-        ])
+        hdr = 'for (auto ' + render(self.target) + ' : ' + render(self.iter) + ')'
+        return render_block(hdr=hdr, body=self.body, hdr_indent=curr_indent, indent=indent, curr_indent=next_indent, **kwargs)
 
 class ForCStyle(stmt):
     init: stmt
@@ -585,15 +582,8 @@ class ForCStyle(stmt):
         return cls(init=init, cond=cond, incr=incr, body=body)
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
-        return '\n'.join([
-            curr_indent + '/* This was translated from something else (eg. range()): */',
-            curr_indent + 'for ('
-                + render(self.init, semicolon=False) + '; '
-                + render(self.cond, brackets=False) + '; '
-                + render(self.incr, semicolon=False, brackets=False) + ') {',
-            *[render(b, indent, next_indent) for b in self.body],
-            curr_indent + '}'
-        ])
+        hdr = 'for (' + render(self.init, semicolon=False) + '; ' + render(self.cond, brackets=False) + '; ' + render(self.incr, semicolon=False, brackets=False) +')'
+        return render_block(hdr=hdr, body=self.body, hdr_indent=curr_indent, indent=indent, curr_indent=next_indent, **kwargs)
 
 class FunctionDef(stmt):
     name: str
@@ -629,13 +619,7 @@ class FunctionDef(stmt):
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
         declaration = self._render_declaration()
-        return '\n'.join([
-            curr_indent + declaration,
-            curr_indent + '{',
-            *[render(b, indent, next_indent) for b in self.body],
-            curr_indent + '}',
-            ''
-        ])
+        return render_function(hdr=declaration, body=self.body, hdr_indent=curr_indent, indent=indent, curr_indent=next_indent, **kwargs)
 
 class Gt(cmpop):
     r: str = '>'
@@ -684,17 +668,11 @@ class If(stmt):
         return cls(test=test, body=body, orelse=orelse)
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
-        return '\n'.join([
-            curr_indent + 'if (' + render(self.test, brackets=False) + ') {',
-            *[render(b, indent, next_indent) for b in self.body],
-            curr_indent + '}',
-            *(
-            [
-                curr_indent + 'else {',
-                *[render(b, indent, next_indent) for b in self.orelse],
-                curr_indent + '}'
-            ] if len(self.orelse) else [])
-        ])
+        hdr = 'if (' + render(self.test, brackets=False) + ')'
+        elsehdr = 'else '
+        ifblock = render_block(hdr=hdr, body=self.body, hdr_indent=curr_indent, indent=indent, curr_indent=next_indent, **kwargs)
+        elseblock = render_block(hdr=elsehdr, body=self.orelse, hdr_indent=curr_indent, indent=indent, curr_indent=next_indent, **kwargs) if len(self.orelse) else ''
+        return ifblock + elseblock
 
 class IfExp(expr):
     test: expr
@@ -940,11 +918,8 @@ class While(stmt):
         return cls(test=test, body=body)
 
     def _render(self, indent: int = 4, curr_indent: str = '', next_indent: str = '', **kwargs):
-        return '\n'.join([
-            curr_indent + 'while (' + render(self.test, brackets=False) + ') {',
-            *[render(b, indent, next_indent) for b in self.body],
-            curr_indent + '}'
-        ])
+        hdr = 'while(' + render(self.test, brackets=False) + ')'
+        return render_block(hdr=hdr, body=self.body, hdr_indent=curr_indent, indent=indent, curr_indent=next_indent, **kwargs)
 
 def __convert_class(py_ast_class: type) -> type:
     """
@@ -986,8 +961,19 @@ def dump(obj: AST, indent: int = 0, __current_indent: int = 0) -> str:
     else:
         return repr(obj)
 
-def render(obj: AST, indent: int = 4, curr_indent: str = '', brackets: bool = True, semicolon: bool = True) -> str:
+def render(obj: AST, indent: int=4, curr_indent: str = '', brackets: bool = True, semicolon: bool = True) -> str:
     return obj._render(indent=indent, curr_indent=curr_indent, next_indent=curr_indent+indent*' ', brackets=brackets, semicolon=semicolon)
+
+def render_body(body: list, **kwargs):
+    return "\n".join(render(b, **kwargs) for b in body)
+
+def render_block(hdr: str, hdr_indent: str, curr_indent: str, body: list, **kwargs):
+    brace1, brace2 = (' {', hdr_indent + '}\n') if len(body) != 1 else ('', '')
+    return hdr_indent + hdr + brace1 + '\n' + render_body(body, curr_indent=curr_indent, **kwargs) + '\n' + brace2
+
+def render_function(hdr: str, hdr_indent: str, curr_indent: str, body: list, **kwargs):
+    return hdr_indent + hdr + ' {\n' + render_body(body, curr_indent=curr_indent, **kwargs) + '\n' + hdr_indent + '}\n'
+
 
 @add_brackets
 def render_list(elts: list, separator: str=', ', **kwargs):
