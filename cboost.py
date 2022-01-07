@@ -7,7 +7,6 @@ import os
 import hashlib
 import ctypes
 import sys
-import functools
 
 _boosted_functions: dict = {}
 _boosted_py_src: str = ''
@@ -25,7 +24,6 @@ def disable():
     global _disabled
     _disabled = True
 
-@functools.cache
 def _is_disabled() -> bool:
     global _disabled
     if _disabled:
@@ -35,7 +33,6 @@ def _is_disabled() -> bool:
         return True
     return False
 
-@functools.cache
 def _use_cache() -> bool:
     global _cache
     if _cache == False:
@@ -651,6 +648,9 @@ class In(cmpop):
     def __init__(self):
         raise Exception('Use of In() is impossible')
 
+class Index(AST):
+    "Index"
+
 class If(stmt):
     "cboost If"
     test: expr = None
@@ -884,7 +884,10 @@ class Subscript(expr):
     @classmethod
     def _from_py(cls, ss):
         value = convert(ss.value)
-        slice = convert(ss.slice)
+        if type(ss.slice) == ast.Index:
+            slice = convert(ss.slice.value)
+        else:
+            slice = convert(ss.slice)
         return cls(value=value, slice=slice)
 
     @add_brackets
@@ -1051,6 +1054,7 @@ __class_conversions: dict = {
     ast.If:         If,
     ast.IfExp:      IfExp,
     ast.In:         In,
+    ast.Index:      Index,
     ast.JoinedStr:  JoinedStr,
     ast.List:       List,
     ast.Lt:         Lt,
