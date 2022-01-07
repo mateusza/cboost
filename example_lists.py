@@ -16,6 +16,7 @@ def test_lists():
 
     lista1.extend([0,1]*7)
     lista1.extend(3*[3,3,3])
+    lista1.extend(range(1000,1007))
 
     for e in lista1 + lista2:
         print(e)
