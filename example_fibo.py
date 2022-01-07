@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.10
+#!/usr/bin/env python3
 
 """
 Recursively calculate n-th term of Fibonacci sequence

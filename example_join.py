@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.10
+#!/usr/bin/env python3
 
 """
 Create string by repeating literan n times and return number of chars.
