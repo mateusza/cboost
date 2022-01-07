@@ -564,16 +564,14 @@ class ForCStyle(stmt):
     @classmethod
     def _from_py(cls, fo: ast.For):
         target = convert(fo.target)
-        r_args = fo.iter.args
-        args_len = len(r_args)
-        if args_len == 1:
-            start, stop, step = Constant(value=0), convert(r_args[0]), Constant(value=1)
-        elif args_len == 2:
-            start, stop, step = convert(r_args[0]), convert(r_args[1]), Constant(value=1)
-        elif args_len == 3:
-            start, stop, step = convert_list(r_args)
-        else:
-            raise Exception("Unknown range() syntax: {r_args}")
+        r_args = convert_list(fo.iter.args)
+
+        if len(r_args) == 1:
+            r_args = [Constant(0), *r_args]
+        if len(r_args) == 2:
+            r_args = [*r_args, Constant(1)]
+
+        start, stop, step = r_args
 
         if type(step) == Constant and step.value == 1:
             incr = IncrDecr(target=target, op=Add(), post=False)
