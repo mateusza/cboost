@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.10
+#!/usr/bin/env python3
 
 import inspect
 import ast
@@ -14,6 +14,10 @@ _boosted_py_src: str = ''
 _disabled = False
 _cache = True
 _compiler = 'g++'
+_compiler_opts = ['-fPIC', '-Werror', '-O2']
+
+if os.sys.platform == 'darwin':
+    _compiler_opts += ['-std=c++11']
 
 _cpp_functions = open('cboost.hpp').read()
 
@@ -56,7 +60,7 @@ def add_indent(render_method):
         return curr_indent + render_method(what, **kwargs)
     return fn
 
-def quote_string_literal(s: str):
+def escape_string_literal(s: str):
     return s.replace('"', '\\"')
 
 class AST:
@@ -465,11 +469,11 @@ class Constant(expr):
         return cls(value=value)
 
     def _render(self, **kwargs):
-        match self.value:
-            case int(x)|float(x):
-                return str(x)
-            case str(x):
-                return 'std::string{"'+quote_string_literal(x)+'"}'
+        value_type = type(self.value)
+        if value_type in (int, float):
+            return str(self.value)
+        if value_type in (str, ):
+            return 'std::string{"'+escape_string_literal(self.value)+'"}'
 
 class Continue(stmt):
     def __init__(self):
@@ -560,16 +564,14 @@ class ForCStyle(stmt):
     @classmethod
     def _from_py(cls, fo: ast.For):
         target = convert(fo.target)
-        r_args = fo.iter.args
-        match len(r_args):
-            case 1:
-                start, stop, step = Constant(value=0), convert(r_args[0]), Constant(value=1)
-            case 2:
-                start, stop, step = convert(r_args[0]), convert(r_args[1]), Constant(value=1)
-            case 3:
-                start, stop, step = convert_list(r_args)
-            case _:
-                raise Exception("Unknown range() syntax")
+        r_args = convert_list(fo.iter.args)
+
+        if len(r_args) == 1:
+            r_args = [Constant(0), *r_args]
+        if len(r_args) == 2:
+            r_args = [*r_args, Constant(1)]
+
+        start, stop, step = r_args
 
         if type(step) == Constant and step.value == 1:
             incr = IncrDecr(target=target, op=Add(), post=False)
@@ -1160,7 +1162,7 @@ def _load_so():
 
         # TODO: compiler, options, flags, etc
         global _compiler
-        gcc_cmd = f'{_compiler} -fPIC -Werror -O2 -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
+        gcc_cmd = f'{_compiler} {" ".join(_compiler_opts)} -shared -o {fn_so} {fn_cpp} 2> {fn_errors}'
         gcc_ret = os.system(gcc_cmd)
         if gcc_ret != 0:
             os.unlink(fn_py_hash)
